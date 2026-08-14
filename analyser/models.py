@@ -59,6 +59,9 @@ class Trade:
     magic: int | None = None
     position_id: str | None = None
     deal_ids: tuple[str, ...] = ()
+    strategy_id: str | None = None
+    source_report_hash: str | None = None
+    allocation_scale: float | None = None
 
     @property
     def gross_profit(self) -> float:
@@ -89,6 +92,7 @@ class Trade:
         return (
             self.close_time or datetime.min,
             self.open_time or datetime.min,
+            self.strategy_id or "",
             self.position_id or self.ticket,
             self.ticket,
         )

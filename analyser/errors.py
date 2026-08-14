@@ -17,3 +17,23 @@ class UnhydratedInputError(ReportError):
 
 class ReportParseError(ReportError):
     """The input could not be parsed as a supported report."""
+
+
+class PortfolioError(ValueError):
+    """Base class for invalid portfolio combinations."""
+
+
+class CurrencyMismatchError(PortfolioError):
+    """Portfolio members do not use one common account currency."""
+
+
+class TimezoneMismatchError(PortfolioError):
+    """Portfolio members do not use one common report timezone."""
+
+
+class DuplicatePortfolioMemberError(PortfolioError):
+    """A portfolio contains a duplicate source or strategy name."""
+
+
+class PortfolioValidationError(PortfolioError):
+    """A portfolio warning was promoted to an error by strict validation."""

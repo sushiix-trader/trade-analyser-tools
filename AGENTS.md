@@ -28,6 +28,26 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
 serializers on `AnalysisResult` for JSON, CSV, or Markdown output.
 
+For multi-report work, use the typed portfolio seam rather than combining
+numbers in a custom script:
+
+```python
+from analyser import PortfolioConfig, PortfolioMember, analyze_portfolio
+
+result = analyze_portfolio(
+    [
+        PortfolioMember("Strategy A", "Description A", source=source_a, weight=0.6),
+        PortfolioMember("Strategy B", "Description B", source=source_b, weight=0.4),
+    ],
+    PortfolioConfig(portfolio_initial_capital=100_000),
+)
+```
+
+Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`, and the
+labelled matrices on `PortfolioAnalysisResult`. Do not net member trades or
+silently combine reports with different currencies/timezones. Use
+`AnalysisStore.analyze_portfolio_or_load()` for cached portfolio retrieval.
+
 For repeated report retrieval, use the package cache rather than writing a
 custom persistence script:
 
@@ -77,6 +97,9 @@ user-facing workflow must remain the package API.
 - Represent undefined metrics as `None`/JSON `null` with a diagnostic.
 - Reject optimization workbooks and unhydrated Git LFS pointers explicitly.
 - Keep simulations and GUI work separate from the v1 eager analytics path.
+- Treat one report as one strategy in portfolio work; never net member trades.
+- Require common currency and timezone before portfolio aggregation.
+- Use static capital-allocation weights and the typed portfolio matrices.
 
 ### Verification
 

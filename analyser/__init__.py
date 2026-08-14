@@ -13,14 +13,34 @@ optimization workbooks are rejected explicitly.
 """
 
 from .analysis import AnalysisResult, MonthlyDrawdown, MonthlyPerformance, analyze, analyze_file
-from .cache import AnalysisArtifact, AnalysisStore
+from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .config import AnalysisConfig, SharpeConfig
 from .equity import CurveSeries, EquityCurve, build_equity
-from .errors import ReportError, ReportParseError, UnhydratedInputError, UnsupportedReportError
+from .errors import (
+    CurrencyMismatchError,
+    DuplicatePortfolioMemberError,
+    PortfolioError,
+    PortfolioValidationError,
+    ReportError,
+    ReportParseError,
+    TimezoneMismatchError,
+    UnhydratedInputError,
+    UnsupportedReportError,
+)
 from .load import InputSource, load_report
+from .matrices import AnalysisMatrix
 from .metrics import Metrics, compute_metrics
 from .models import AccountPoint, Report, Trade, TradeSide
+from .portfolio import (
+    AnalyzedPortfolioMember,
+    PortfolioAnalysisResult,
+    PortfolioConfig,
+    PortfolioMember,
+    PortfolioMemberResult,
+    analyze_portfolio,
+    combine_analyses,
+)
 from .simulations import MonteCarloConfig, MonteCarloResult, run_monte_carlo, run_monte_carlo_file
 
 __all__ = [
@@ -28,6 +48,7 @@ __all__ = [
     "AnalysisArtifact",
     "AnalysisStore",
     "AnalysisConfig",
+    "AnalysisMatrix",
     "AnalysisResult",
     "CurveSeries",
     "EquityCurve",
@@ -37,6 +58,16 @@ __all__ = [
     "MonteCarloResult",
     "MonthlyDrawdown",
     "MonthlyPerformance",
+    "AnalyzedPortfolioMember",
+    "PortfolioAnalysisResult",
+    "PortfolioAnalysisArtifact",
+    "PortfolioConfig",
+    "PortfolioMember",
+    "PortfolioMemberResult",
+    "CurrencyMismatchError",
+    "DuplicatePortfolioMemberError",
+    "PortfolioError",
+    "PortfolioValidationError",
     "Report",
     "ReportComparison",
     "ReportError",
@@ -45,6 +76,7 @@ __all__ = [
     "Trade",
     "TradeMismatch",
     "TradeSide",
+    "TimezoneMismatchError",
     "UnhydratedInputError",
     "UnsupportedReportError",
     "analyze",
@@ -52,6 +84,8 @@ __all__ = [
     "build_equity",
     "compare_reports",
     "compute_metrics",
+    "analyze_portfolio",
+    "combine_analyses",
     "load_report",
     "run_monte_carlo",
     "run_monte_carlo_file",

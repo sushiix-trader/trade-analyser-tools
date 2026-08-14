@@ -23,6 +23,73 @@ from .models import Report, Trade
 from .serialization import deterministic_json, to_primitive
 
 
+def _report_from_dict(report_data: dict[str, Any]) -> Report:
+    """Restore a canonical report from deterministic serialized data."""
+
+    from .models import AccountPoint, Trade, TradeSide
+
+    def parse_datetime(value: str | None) -> datetime | None:
+        return datetime.fromisoformat(value) if value else None
+
+    def restore_trade(data: dict[str, Any]) -> Trade:
+        return Trade(
+            ticket=data["ticket"],
+            symbol=data["symbol"],
+            side=TradeSide(data["side"]),
+            volume=data["volume"],
+            open_time=parse_datetime(data.get("open_time")),
+            close_time=parse_datetime(data.get("close_time")),
+            open_price=data.get("open_price"),
+            close_price=data.get("close_price"),
+            profit=data["profit"],
+            swap=data.get("swap", 0.0),
+            commission=data.get("commission", 0.0),
+            sl=data.get("sl"),
+            tp=data.get("tp"),
+            comment=data.get("comment"),
+            magic=data.get("magic"),
+            position_id=data.get("position_id"),
+            deal_ids=tuple(data.get("deal_ids", ())),
+            strategy_id=data.get("strategy_id"),
+            source_report_hash=data.get("source_report_hash"),
+            allocation_scale=data.get("allocation_scale"),
+        )
+
+    return Report(
+        trades=[restore_trade(item) for item in report_data.get("trades", [])],
+        initial_deposit=report_data.get("initial_deposit", 0.0),
+        currency=report_data.get("currency", ""),
+        broker=report_data.get("broker", ""),
+        leverage=report_data.get("leverage", ""),
+        source_file=report_data.get("source_file", ""),
+        source_format=report_data.get("source_format", ""),
+        strategy_name=report_data.get("strategy_name", ""),
+        server=report_data.get("server", ""),
+        timezone=report_data.get("timezone"),
+        source_balance_points=[
+            AccountPoint(
+                parse_datetime(item["timestamp"]),
+                item.get("balance"),
+                item.get("equity"),
+                item.get("source_id"),
+            )
+            for item in report_data.get("source_balance_points", [])
+        ],
+        source_equity_points=[
+            AccountPoint(
+                parse_datetime(item["timestamp"]),
+                item.get("balance"),
+                item.get("equity"),
+                item.get("source_id"),
+            )
+            for item in report_data.get("source_equity_points", [])
+        ],
+        reported_metrics=report_data.get("reported_metrics", {}),
+        warnings=report_data.get("warnings", []),
+        metadata=report_data.get("metadata", {}),
+    )
+
+
 @dataclass(frozen=True)
 class MonthlyPerformance:
     period: str
@@ -85,56 +152,12 @@ class AnalysisResult:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AnalysisResult":
         from .diagnostics import Diagnostic
-        from .models import AccountPoint, Trade, TradeSide
 
         def parse_datetime(value: str | None) -> datetime | None:
             return datetime.fromisoformat(value) if value else None
 
-        def restore_trade(data: dict[str, Any]) -> Trade:
-            return Trade(
-                ticket=data["ticket"],
-                symbol=data["symbol"],
-                side=TradeSide(data["side"]),
-                volume=data["volume"],
-                open_time=parse_datetime(data.get("open_time")),
-                close_time=parse_datetime(data.get("close_time")),
-                open_price=data.get("open_price"),
-                close_price=data.get("close_price"),
-                profit=data["profit"],
-                swap=data.get("swap", 0.0),
-                commission=data.get("commission", 0.0),
-                sl=data.get("sl"),
-                tp=data.get("tp"),
-                comment=data.get("comment"),
-                magic=data.get("magic"),
-                position_id=data.get("position_id"),
-                deal_ids=tuple(data.get("deal_ids", ())),
-            )
-
         report_data = payload["report"]
-        report = Report(
-            trades=[restore_trade(item) for item in report_data.get("trades", [])],
-            initial_deposit=report_data.get("initial_deposit", 0.0),
-            currency=report_data.get("currency", ""),
-            broker=report_data.get("broker", ""),
-            leverage=report_data.get("leverage", ""),
-            source_file=report_data.get("source_file", ""),
-            source_format=report_data.get("source_format", ""),
-            strategy_name=report_data.get("strategy_name", ""),
-            server=report_data.get("server", ""),
-            timezone=report_data.get("timezone"),
-            source_balance_points=[
-                AccountPoint(parse_datetime(item["timestamp"]), item.get("balance"), item.get("equity"), item.get("source_id"))
-                for item in report_data.get("source_balance_points", [])
-            ],
-            source_equity_points=[
-                AccountPoint(parse_datetime(item["timestamp"]), item.get("balance"), item.get("equity"), item.get("source_id"))
-                for item in report_data.get("source_equity_points", [])
-            ],
-            reported_metrics=report_data.get("reported_metrics", {}),
-            warnings=report_data.get("warnings", []),
-            metadata=report_data.get("metadata", {}),
-        )
+        report = _report_from_dict(report_data)
 
         def restore_curve(data: dict[str, Any] | None) -> CurveResult | None:
             if data is None:
