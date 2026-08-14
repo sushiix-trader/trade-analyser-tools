@@ -1,0 +1,66 @@
+# Agent workflow
+
+## Trading-report work
+
+Use the `analyser` package as the canonical trading-report interface.
+
+### Standard path
+
+For one MT5 Strategy Tester report, use the eager platform API:
+
+```python
+from analyser import AnalysisConfig, analyze_file
+result = analyze_file(source, AnalysisConfig())
+```
+
+Use `load_report()` followed by `analyze()` when parsing and analysis need to
+be separate. Retrieve calculated values from `AnalysisResult`:
+
+- `result.metrics`
+- `result.monthly`
+- `result.monthly_drawdown`
+- `result.balance`
+- `result.equity`
+- `result.validation`
+- `result.warnings`
+- `result.provenance`
+
+Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
+serializers on `AnalysisResult` for JSON, CSV, or Markdown output.
+
+### Implementation rule
+
+When a user asks for trading-report or metric analysis, extend or call the
+public `analyser` API and its typed result model. Put reusable behavior in the
+package and add a regression test under `tests/`. Keep exploratory work in
+notebooks or tests only when it is needed to validate a package change; the
+user-facing workflow must remain the package API.
+
+### Analytical contract
+
+- Accept single-run MT5 HTML/HTM and XML reports.
+- Treat completed closed positions as the canonical trade unit.
+- Preserve source balance/equity and always calculate the reconstructed curve.
+- Keep reported MT5 metrics separate from computed metrics.
+- Preserve deterministic configuration, warnings, validation, and provenance.
+- Represent undefined metrics as `None`/JSON `null` with a diagnostic.
+- Reject optimization workbooks and unhydrated Git LFS pointers explicitly.
+- Keep simulations and GUI work separate from the v1 eager analytics path.
+
+### Verification
+
+Run the full suite after changes:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+For measured coverage, use the project environment:
+
+```bash
+.venv/bin/coverage run -m unittest discover -s tests
+.venv/bin/coverage report -m
+```
+
+A parser or metric change is complete only when synthetic tests, relevant real
+local-report regressions, and coverage verification pass.
