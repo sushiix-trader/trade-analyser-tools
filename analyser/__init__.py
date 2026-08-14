@@ -21,6 +21,7 @@ from .errors import ReportError, ReportParseError, UnhydratedInputError, Unsuppo
 from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
 from .models import AccountPoint, Report, Trade, TradeSide
+from .simulations import MonteCarloConfig, MonteCarloResult, run_monte_carlo, run_monte_carlo_file
 
 __all__ = [
     "AccountPoint",
@@ -32,6 +33,8 @@ __all__ = [
     "EquityCurve",
     "InputSource",
     "Metrics",
+    "MonteCarloConfig",
+    "MonteCarloResult",
     "MonthlyDrawdown",
     "MonthlyPerformance",
     "Report",
@@ -50,4 +53,6 @@ __all__ = [
     "compare_reports",
     "compute_metrics",
     "load_report",
+    "run_monte_carlo",
+    "run_monte_carlo_file",
 ]

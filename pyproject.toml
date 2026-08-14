@@ -22,7 +22,10 @@ test = ["coverage>=7"]
 [tool.coverage.run]
 branch = true
 source = ["analyser"]
-omit = ["analyser/simulations/*"]
+omit = [
+  "analyser/simulations/money_management.py",
+  "analyser/simulations/what_if.py",
+]
 
 [tool.coverage.report]
 fail_under = 80

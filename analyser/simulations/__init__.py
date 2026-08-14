@@ -1,7 +1,15 @@
-"""QuantAnalyzer-style simulations."""
+"""Optional QuantAnalyzer-style simulations.
+
+Simulations are intentionally separate from the eager report analytics API.
+"""
 
 from .money_management import MoneyManagementResult, fixed_fractional, fixed_ratio
-from .monte_carlo import MonteCarloResult, run_monte_carlo
+from .monte_carlo import (
+    MonteCarloConfig,
+    MonteCarloResult,
+    run_monte_carlo,
+    run_monte_carlo_file,
+)
 from .what_if import (
     add_commission,
     by_hours,
@@ -13,6 +21,8 @@ from .what_if import (
 
 __all__ = [
     "run_monte_carlo",
+    "run_monte_carlo_file",
+    "MonteCarloConfig",
     "MonteCarloResult",
     "fixed_fractional",
     "fixed_ratio",

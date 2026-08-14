@@ -42,6 +42,23 @@ result = artifact.result
 call. The cache key is deterministic for the report bytes and analysis
 configuration.
 
+For Monte Carlo robustness work, use the public simulation API rather than a
+custom randomisation script:
+
+```python
+from analyser import MonteCarloConfig, run_monte_carlo_file
+
+simulation = run_monte_carlo_file(
+    source,
+    MonteCarloConfig(iterations=10_000, method="permutation", seed=42),
+)
+```
+
+Monte Carlo operates on completed-position net profits. The permutation
+method preserves every historical trade and changes only its order; bootstrap
+sampling is an explicit alternative. Results are deterministic for a fixed
+configuration and expose `summary()`, aligned result arrays, and `to_json()`.
+
 ### Implementation rule
 
 When a user asks for trading-report or metric analysis, extend or call the
@@ -76,5 +93,5 @@ For measured coverage, use the project environment:
 .venv/bin/coverage report -m
 ```
 
-A parser or metric change is complete only when synthetic tests, relevant real
-local-report regressions, and coverage verification pass.
+A parser, metric, or simulation change is complete only when synthetic tests,
+relevant real local-report regressions, and coverage verification pass.
