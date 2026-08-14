@@ -82,6 +82,93 @@ class AnalysisResult:
     def to_json(self) -> str:
         return deterministic_json(self)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AnalysisResult":
+        from .diagnostics import Diagnostic
+        from .models import AccountPoint, Trade, TradeSide
+
+        def parse_datetime(value: str | None) -> datetime | None:
+            return datetime.fromisoformat(value) if value else None
+
+        def restore_trade(data: dict[str, Any]) -> Trade:
+            return Trade(
+                ticket=data["ticket"],
+                symbol=data["symbol"],
+                side=TradeSide(data["side"]),
+                volume=data["volume"],
+                open_time=parse_datetime(data.get("open_time")),
+                close_time=parse_datetime(data.get("close_time")),
+                open_price=data.get("open_price"),
+                close_price=data.get("close_price"),
+                profit=data["profit"],
+                swap=data.get("swap", 0.0),
+                commission=data.get("commission", 0.0),
+                sl=data.get("sl"),
+                tp=data.get("tp"),
+                comment=data.get("comment"),
+                magic=data.get("magic"),
+                position_id=data.get("position_id"),
+                deal_ids=tuple(data.get("deal_ids", ())),
+            )
+
+        report_data = payload["report"]
+        report = Report(
+            trades=[restore_trade(item) for item in report_data.get("trades", [])],
+            initial_deposit=report_data.get("initial_deposit", 0.0),
+            currency=report_data.get("currency", ""),
+            broker=report_data.get("broker", ""),
+            leverage=report_data.get("leverage", ""),
+            source_file=report_data.get("source_file", ""),
+            source_format=report_data.get("source_format", ""),
+            strategy_name=report_data.get("strategy_name", ""),
+            server=report_data.get("server", ""),
+            timezone=report_data.get("timezone"),
+            source_balance_points=[
+                AccountPoint(parse_datetime(item["timestamp"]), item.get("balance"), item.get("equity"), item.get("source_id"))
+                for item in report_data.get("source_balance_points", [])
+            ],
+            source_equity_points=[
+                AccountPoint(parse_datetime(item["timestamp"]), item.get("balance"), item.get("equity"), item.get("source_id"))
+                for item in report_data.get("source_equity_points", [])
+            ],
+            reported_metrics=report_data.get("reported_metrics", {}),
+            warnings=report_data.get("warnings", []),
+            metadata=report_data.get("metadata", {}),
+        )
+
+        def restore_curve(data: dict[str, Any] | None) -> CurveResult | None:
+            if data is None:
+                return None
+            return CurveResult(
+                timestamps=tuple(parse_datetime(value) for value in data["timestamps"]),
+                values=tuple(data["values"]),
+                source=data["source"],
+                basis=data["basis"],
+                initial_value=data["initial_value"],
+            )
+
+        validation_data = payload["validation"]
+        validation = ValidationResult(
+            status=validation_data.get("status", "not_run"),
+            checks=validation_data.get("checks", {}),
+            discrepancies=tuple(validation_data.get("discrepancies", ())),
+        )
+        return cls(
+            report=report,
+            metrics=Metrics(**payload["metrics"]),
+            reported_metrics=payload.get("reported_metrics", {}),
+            balance=restore_curve(payload["balance"]),
+            equity=restore_curve(payload["equity"]),
+            source_balance=restore_curve(payload.get("source_balance")),
+            source_equity=restore_curve(payload.get("source_equity")),
+            monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
+            monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
+            by_symbol=payload.get("by_symbol", {}),
+            validation=validation,
+            warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
+            provenance=payload.get("provenance", {}),
+        )
+
     def to_csv(self, section: str = "monthly") -> str:
         output = io.StringIO()
         writer = csv.writer(output, lineterminator="\n")

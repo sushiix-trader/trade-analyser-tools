@@ -13,6 +13,7 @@ optimization workbooks are rejected explicitly.
 """
 
 from .analysis import AnalysisResult, MonthlyDrawdown, MonthlyPerformance, analyze, analyze_file
+from .cache import AnalysisArtifact, AnalysisStore
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .config import AnalysisConfig, SharpeConfig
 from .equity import CurveSeries, EquityCurve, build_equity
@@ -23,6 +24,8 @@ from .models import AccountPoint, Report, Trade, TradeSide
 
 __all__ = [
     "AccountPoint",
+    "AnalysisArtifact",
+    "AnalysisStore",
     "AnalysisConfig",
     "AnalysisResult",
     "CurveSeries",

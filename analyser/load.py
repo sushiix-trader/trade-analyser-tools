@@ -15,7 +15,7 @@ from .parsing_utils import decode_report_bytes
 InputSource = str | Path | bytes | bytearray | memoryview | BinaryIO
 
 
-def _read_source(source: InputSource) -> tuple[bytes, str]:
+def read_input(source: InputSource) -> tuple[bytes, str]:
     if isinstance(source, (str, Path)):
         path = Path(source)
         return path.read_bytes(), str(path)
@@ -33,7 +33,7 @@ def _read_source(source: InputSource) -> tuple[bytes, str]:
 def load_report(source: InputSource) -> Report:
     """Parse one supported MT5 single-run report without running analytics."""
 
-    data, filename = _read_source(source)
+    data, filename = read_input(source)
     if data.startswith(b"version https://git-lfs.github.com/spec/v1"):
         raise UnhydratedInputError(
             "The input is a Git LFS pointer, not the actual report payload"
@@ -56,4 +56,4 @@ def load_report(source: InputSource) -> Report:
     return report
 
 
-__all__ = ["InputSource", "load_report", "Report"]
+__all__ = ["InputSource", "load_report", "read_input", "Report"]

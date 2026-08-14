@@ -28,6 +28,20 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
 serializers on `AnalysisResult` for JSON, CSV, or Markdown output.
 
+For repeated report retrieval, use the package cache rather than writing a
+custom persistence script:
+
+```python
+from analyser import AnalysisStore
+
+artifact = AnalysisStore("data/analysis-cache").analyze_or_load(source)
+result = artifact.result
+```
+
+`artifact.cache_hit` indicates whether eager analysis was performed during that
+call. The cache key is deterministic for the report bytes and analysis
+configuration.
+
 ### Implementation rule
 
 When a user asks for trading-report or metric analysis, extend or call the
