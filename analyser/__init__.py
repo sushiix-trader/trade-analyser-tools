@@ -12,8 +12,17 @@ Only completed single-run MT5 Strategy Tester HTML/XML reports are accepted;
 optimization workbooks are rejected explicitly.
 """
 
-from .analysis import AnalysisResult, MonthlyDrawdown, MonthlyPerformance, analyze, analyze_file
+from .analysis import (
+    AnalysisResult,
+    MonthlyDrawdown,
+    MonthlyPerformance,
+    MonthlyPerformanceTable,
+    MonthlyPerformanceTableRow,
+    analyze,
+    analyze_file,
+)
 from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
+from .charts import render_equity_drawdown_chart, save_equity_drawdown_chart
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .config import AnalysisConfig, SharpeConfig
 from .equity import CurveSeries, EquityCurve, build_equity
@@ -47,6 +56,8 @@ __all__ = [
     "AccountPoint",
     "AnalysisArtifact",
     "AnalysisStore",
+    "render_equity_drawdown_chart",
+    "save_equity_drawdown_chart",
     "AnalysisConfig",
     "AnalysisMatrix",
     "AnalysisResult",
@@ -58,6 +69,8 @@ __all__ = [
     "MonteCarloResult",
     "MonthlyDrawdown",
     "MonthlyPerformance",
+    "MonthlyPerformanceTable",
+    "MonthlyPerformanceTableRow",
     "AnalyzedPortfolioMember",
     "PortfolioAnalysisResult",
     "PortfolioAnalysisArtifact",

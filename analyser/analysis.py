@@ -8,6 +8,7 @@ import io
 import math
 from calendar import monthrange
 from dataclasses import dataclass, field
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,8 @@ def _report_from_dict(report_data: dict[str, Any]) -> Report:
             strategy_id=data.get("strategy_id"),
             source_report_hash=data.get("source_report_hash"),
             allocation_scale=data.get("allocation_scale"),
+            bars=data.get("bars"),
+            r_multiple=data.get("r_multiple"),
         )
 
     return Report(
@@ -100,6 +103,52 @@ class MonthlyPerformance:
     trade_count: int
 
 
+MONTH_LABELS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+@dataclass(frozen=True)
+class MonthlyPerformanceTableRow:
+    """One year in a QuantAnalyzer-style monthly performance table.
+
+    Returns are percentages, not fractions.  ``None`` means that the month is
+    outside the report's active period; a zero means the month was active but
+    flat/no-trade.  ``ytd_return_pct`` is compounded from the first active
+    month in that calendar year.
+    """
+
+    year: int
+    monthly_returns_pct: tuple[float | None, ...]
+    ytd_return_pct: float | None
+    monthly_pnl: tuple[float | None, ...]
+    monthly_trade_counts: tuple[int | None, ...]
+
+
+@dataclass(frozen=True)
+class MonthlyPerformanceTable:
+    """Matrix-ready monthly returns with a deterministic YTD calculation."""
+
+    rows: tuple[MonthlyPerformanceTableRow, ...]
+    source: str
+    basis: str
+    month_labels: tuple[str, ...] = MONTH_LABELS
+
+    @property
+    def years(self) -> tuple[int, ...]:
+        return tuple(row.year for row in self.rows)
+
+    def row(self, year: int) -> MonthlyPerformanceTableRow:
+        for item in self.rows:
+            if item.year == year:
+                return item
+        raise KeyError(year)
+
+    def to_dict(self) -> dict[str, Any]:
+        return to_primitive(self)
+
+
 @dataclass(frozen=True)
 class MonthlyDrawdown:
     period: str
@@ -138,6 +187,7 @@ class AnalysisResult:
     source_equity: CurveResult | None
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
+    monthly_performance: MonthlyPerformanceTable
     by_symbol: dict[str, dict[str, Any]]
     validation: ValidationResult
     warnings: tuple[Diagnostic, ...]
@@ -170,6 +220,30 @@ class AnalysisResult:
                 initial_value=data["initial_value"],
             )
 
+        monthly = tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))
+        table_data = payload.get("monthly_performance")
+        if table_data is not None:
+            monthly_performance = MonthlyPerformanceTable(
+                rows=tuple(
+                    MonthlyPerformanceTableRow(
+                        year=item["year"],
+                        monthly_returns_pct=tuple(item["monthly_returns_pct"]),
+                        ytd_return_pct=item.get("ytd_return_pct"),
+                        monthly_pnl=tuple(item["monthly_pnl"]),
+                        monthly_trade_counts=tuple(item["monthly_trade_counts"]),
+                    )
+                    for item in table_data.get("rows", [])
+                ),
+                source=table_data.get("source", ""),
+                basis=table_data.get("basis", ""),
+                month_labels=tuple(table_data.get("month_labels", MONTH_LABELS)),
+            )
+        else:
+            curve_data = payload.get("equity") or {}
+            monthly_performance = _monthly_performance_table(
+                monthly, curve_data.get("source", ""), curve_data.get("basis", "")
+            )
+
         validation_data = payload["validation"]
         validation = ValidationResult(
             status=validation_data.get("status", "not_run"),
@@ -184,8 +258,9 @@ class AnalysisResult:
             equity=restore_curve(payload["equity"]),
             source_balance=restore_curve(payload.get("source_balance")),
             source_equity=restore_curve(payload.get("source_equity")),
-            monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
+            monthly=monthly,
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
+            monthly_performance=monthly_performance,
             by_symbol=payload.get("by_symbol", {}),
             validation=validation,
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
@@ -208,6 +283,14 @@ class AnalysisResult:
                 writer.writerow([
                     row.period, row.pnl, row.return_on_starting_equity,
                     row.return_on_initial_capital, row.cumulative_return, row.trade_count,
+                ])
+        elif section == "monthly_performance":
+            writer.writerow(["year", *MONTH_LABELS, "YTD"])
+            for row in self.monthly_performance.rows:
+                writer.writerow([
+                    row.year,
+                    *("" if value is None else value for value in row.monthly_returns_pct),
+                    row.ytd_return_pct,
                 ])
         elif section == "monthly_drawdown":
             writer.writerow([
@@ -289,9 +372,9 @@ def _curve_monthly(
             MonthlyPerformance(
                 period=key,
                 pnl=pnl,
-                return_on_starting_equity=(end_value / start_value - 1.0) if start_value else None,
-                return_on_initial_capital=(pnl / report.initial_deposit) if report.initial_deposit else None,
-                cumulative_return=(end_value / report.initial_deposit - 1.0) if report.initial_deposit else None,
+                return_on_starting_equity=float(end_value / start_value - 1.0) if start_value else None,
+                return_on_initial_capital=float(pnl / report.initial_deposit) if report.initial_deposit else None,
+                cumulative_return=float(end_value / report.initial_deposit - 1.0) if report.initial_deposit else None,
                 trade_count=len(period_trades),
             )
         )
@@ -326,6 +409,50 @@ def _curve_monthly(
                 MonthlyDrawdown(key, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             )
     return tuple(monthly), tuple(drawdowns)
+
+
+def _monthly_performance_table(
+    monthly: tuple[MonthlyPerformance, ...],
+    source: str,
+    basis: str,
+) -> MonthlyPerformanceTable:
+    if not monthly:
+        return MonthlyPerformanceTable((), source, basis)
+    by_year: dict[int, dict[int, MonthlyPerformance]] = defaultdict(dict)
+    for item in monthly:
+        year, month = (int(value) for value in item.period.split("-"))
+        by_year[year][month] = item
+    rows: list[MonthlyPerformanceTableRow] = []
+    for year in sorted(by_year):
+        returns: list[float | None] = []
+        pnl: list[float | None] = []
+        counts: list[int | None] = []
+        ytd_factor = 1.0
+        has_active_month = False
+        for month in range(1, 13):
+            item = by_year[year].get(month)
+            if item is None:
+                returns.append(None)
+                pnl.append(None)
+                counts.append(None)
+                continue
+            value = item.return_on_starting_equity
+            returns.append(float(value * 100) if value is not None else None)
+            pnl.append(float(item.pnl))
+            counts.append(item.trade_count)
+            if value is not None:
+                ytd_factor *= 1.0 + value
+                has_active_month = True
+        rows.append(
+            MonthlyPerformanceTableRow(
+                year=year,
+                monthly_returns_pct=tuple(returns),
+                ytd_return_pct=float((ytd_factor - 1.0) * 100) if has_active_month else None,
+                monthly_pnl=tuple(pnl),
+                monthly_trade_counts=tuple(counts),
+            )
+        )
+    return MonthlyPerformanceTable(tuple(rows), source, basis)
 
 
 def _by_symbol(report: Report) -> dict[str, dict[str, Any]]:
@@ -389,6 +516,7 @@ def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisRes
     primary = source_equity if source_equity is not None and config.primary_curve == "source_then_reconstructed" else reconstructed
     metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
+    monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
     validation = _validate(report, metrics)
     if validation.status != "match":
         diagnostics.append(Diagnostic(
@@ -408,6 +536,7 @@ def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisRes
         source_equity=CurveResult.from_curve(source_equity),
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
+        monthly_performance=monthly_performance,
         by_symbol=_by_symbol(report) if config.include_breakdowns else {},
         validation=validation,
         warnings=tuple(diagnostics),

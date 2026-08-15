@@ -19,6 +19,7 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.metrics`
 - `result.monthly`
 - `result.monthly_drawdown`
+- `result.monthly_performance` (year × Jan-Dec + compounded YTD table)
 - `result.balance`
 - `result.equity`
 - `result.validation`
@@ -26,7 +27,15 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.provenance`
 
 Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
-serializers on `AnalysisResult` for JSON, CSV, or Markdown output.
+serializers on `AnalysisResult` for JSON, CSV, or Markdown output. For a
+visual artifact, use `save_equity_drawdown_chart(result, destination)` from the
+optional chart API; it renders the selected equity curve and high-water-mark
+drawdown without recalculating analysis. The
+QuantAnalyzer-style fields are on `result.metrics`, including total profit
+percentage, return/drawdown ratios, win/loss and payout ratios, gross/average/
+largest trade percentages, streak averages, AHPR, daily/monthly/yearly
+averages, stagnation, exposure, z-score, and SQN. R-expectancy and bars per
+trade are calculated only when the input supplies explicit R/bar values.
 
 For multi-report work, use the typed portfolio seam rather than combining
 numbers in a custom script:
@@ -43,8 +52,9 @@ result = analyze_portfolio(
 )
 ```
 
-Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`, and the
-labelled matrices on `PortfolioAnalysisResult`. Do not net member trades or
+Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
+`result.monthly_performance`, and the labelled matrices on
+`PortfolioAnalysisResult`. Do not net member trades or
 silently combine reports with different currencies/timezones. Use
 `AnalysisStore.analyze_portfolio_or_load()` for cached portfolio retrieval.
 

@@ -18,6 +18,7 @@ include = ["analyser*"]
 
 [project.optional-dependencies]
 test = ["coverage>=7"]
+charts = ["matplotlib>=3.7"]
 
 [tool.coverage.run]
 branch = true

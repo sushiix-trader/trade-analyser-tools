@@ -114,6 +114,8 @@ def normalise_trade(
         tp=parse_number(pick("tp", "take_profit", "takeprofit")),
         comment=str(pick("comment") or "") or None,
         magic=parse_int(pick("magic", "magic_number", "magicnumber")),
+        bars=parse_int(pick("bars", "bars_in_trade", "bar_count")),
+        r_multiple=parse_number(pick("r", "r_multiple", "r_multiple_result", "risk_multiple")),
     )
 
 

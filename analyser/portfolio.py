@@ -24,6 +24,9 @@ from .analysis import (
     CurveResult,
     MonthlyDrawdown,
     MonthlyPerformance,
+    MonthlyPerformanceTable,
+    MonthlyPerformanceTableRow,
+    _monthly_performance_table,
     _report_from_dict,
     _curve_monthly,
     _month_keys,
@@ -165,6 +168,7 @@ class PortfolioAnalysisResult:
     source_equity: CurveResult | None
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
+    monthly_performance: MonthlyPerformanceTable
     raw_equity_matrix: AnalysisMatrix
     equity_matrix: AnalysisMatrix
     raw_monthly_return_matrix: AnalysisMatrix
@@ -227,6 +231,17 @@ class PortfolioAnalysisResult:
                 writer.writerow([
                     row.period, row.pnl, row.return_on_starting_equity,
                     row.return_on_initial_capital, row.cumulative_return, row.trade_count,
+                ])
+            return output.getvalue()
+        if section == "monthly_performance":
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow(["year", *self.monthly_performance.month_labels, "YTD"])
+            for row in self.monthly_performance.rows:
+                writer.writerow([
+                    row.year,
+                    *("" if value is None else value for value in row.monthly_returns_pct),
+                    row.ytd_return_pct,
                 ])
             return output.getvalue()
         if section == "monthly_drawdown":
@@ -355,6 +370,7 @@ class PortfolioAnalysisResult:
             source_equity=_curve_from_dict(payload.get("source_equity")),
             monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
+            monthly_performance=_monthly_table_from_payload(payload, tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))),
             equity_matrix=_matrix_from_dict(payload["equity_matrix"]),
             raw_equity_matrix=_matrix_from_dict(payload["raw_equity_matrix"]),
             raw_monthly_return_matrix=_matrix_from_dict(payload["raw_monthly_return_matrix"]),
@@ -368,6 +384,33 @@ class PortfolioAnalysisResult:
             provenance=payload.get("provenance", {}),
             config=config,
         )
+
+
+def _monthly_table_from_payload(
+    payload: dict[str, Any],
+    monthly: tuple[MonthlyPerformance, ...],
+) -> MonthlyPerformanceTable:
+    data = payload.get("monthly_performance")
+    if data is None:
+        return _monthly_performance_table(monthly, "", "")
+    return MonthlyPerformanceTable(
+        rows=tuple(
+            MonthlyPerformanceTableRow(
+                year=item["year"],
+                monthly_returns_pct=tuple(item["monthly_returns_pct"]),
+                ytd_return_pct=item.get("ytd_return_pct"),
+                monthly_pnl=tuple(item["monthly_pnl"]),
+                monthly_trade_counts=tuple(item["monthly_trade_counts"]),
+            )
+            for item in data.get("rows", [])
+        ),
+        source=data.get("source", ""),
+        basis=data.get("basis", ""),
+        month_labels=tuple(data.get("month_labels", (
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ))),
+    )
 
 
 def _datetime(value: str | None) -> datetime | None:
@@ -811,6 +854,9 @@ def combine_analyses(
         allocated_portfolio_curve.initial_value,
     )
     monthly, monthly_drawdown = _curve_monthly(primary_series, portfolio_report)
+    monthly_performance = _monthly_performance_table(
+        monthly, allocated_portfolio_curve.source, allocated_portfolio_curve.basis
+    )
     months = [row.period for row in monthly]
 
     raw_monthly_returns: list[list[float | None]] = []
@@ -970,6 +1016,7 @@ def combine_analyses(
         source_equity=source_equity,
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
+        monthly_performance=monthly_performance,
         raw_equity_matrix=raw_equity_matrix,
         equity_matrix=equity_matrix,
         raw_monthly_return_matrix=raw_return_matrix,

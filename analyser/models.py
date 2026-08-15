@@ -62,6 +62,8 @@ class Trade:
     strategy_id: str | None = None
     source_report_hash: str | None = None
     allocation_scale: float | None = None
+    bars: int | None = None
+    r_multiple: float | None = None
 
     @property
     def gross_profit(self) -> float:

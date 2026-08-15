@@ -7,7 +7,15 @@ from analyser import AnalysisConfig, Report, SharpeConfig, Trade, TradeSide, ana
 from analyser.models import AccountPoint
 
 
-def trade(ticket: str, close: datetime, profit: float, *, symbol: str = "X") -> Trade:
+def trade(
+    ticket: str,
+    close: datetime,
+    profit: float,
+    *,
+    symbol: str = "X",
+    bars: int | None = None,
+    r_multiple: float | None = None,
+) -> Trade:
     return Trade(
         ticket=ticket,
         symbol=symbol,
@@ -18,6 +26,8 @@ def trade(ticket: str, close: datetime, profit: float, *, symbol: str = "X") -> 
         open_price=100.0,
         close_price=101.0,
         profit=profit,
+        bars=bars,
+        r_multiple=r_multiple,
     )
 
 
@@ -90,6 +100,108 @@ class MetricEdgeTests(unittest.TestCase):
         annualized = analyze(report, AnalysisConfig(sharpe=SharpeConfig(annualization_factor=252)))
         self.assertNotEqual(base.metrics.custom_trade_event_sharpe, annualized.metrics.custom_trade_event_sharpe)
         self.assertEqual(base.to_json(), analyze(report).to_json())
+
+    def test_quant_analyzer_style_monthly_table_compounds_ytd(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[
+                trade("1", datetime(2024, 1, 2), 100.0),
+                trade("2", datetime(2024, 2, 2), -50.0),
+                trade("3", datetime(2024, 3, 2), 25.0),
+            ],
+        )
+        result = analyze(report)
+        row = result.monthly_performance.row(2024)
+        self.assertEqual(result.monthly_performance.month_labels[:3], ("Jan", "Feb", "Mar"))
+        self.assertAlmostEqual(row.monthly_returns_pct[0], 10.0)
+        self.assertAlmostEqual(row.monthly_returns_pct[1], -50.0 / 1100.0 * 100.0)
+        self.assertAlmostEqual(row.monthly_returns_pct[2], 25.0 / 1050.0 * 100.0)
+        self.assertAlmostEqual(row.ytd_return_pct, 7.5)
+        self.assertIsNone(row.monthly_returns_pct[3])
+        self.assertIn("YTD", result.to_csv("monthly_performance"))
+
+    def test_screenshot_style_closed_position_metrics_are_exposed(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[
+                trade("1", datetime(2024, 1, 2), 100.0),
+                trade("2", datetime(2024, 1, 3), -50.0),
+                trade("3", datetime(2024, 1, 4), 25.0),
+                trade("4", datetime(2024, 1, 5), -25.0),
+            ],
+        )
+        result = analyze(report)
+        metrics = result.metrics
+        self.assertEqual(metrics.total_profit_pct, 5.0)
+        self.assertEqual(metrics.wins_losses_ratio, 1.0)
+        self.assertEqual(metrics.gross_profit_pct, 12.5)
+        self.assertEqual(metrics.gross_loss_pct, -7.5)
+        self.assertEqual(metrics.average_trade_pct, 1.25)
+        self.assertEqual(metrics.largest_win_pct, 10.0)
+        self.assertEqual(metrics.largest_loss_pct, -5.0)
+        self.assertEqual(metrics.average_consecutive_wins, 1.0)
+        self.assertEqual(metrics.average_consecutive_losses, 1.0)
+        self.assertAlmostEqual(metrics.return_drawdown_ratio, 1.1)
+        self.assertIsNotNone(metrics.z_score)
+        self.assertIsNotNone(metrics.z_probability_pct)
+        self.assertIsNotNone(metrics.sqn_score)
+        self.assertIsNotNone(metrics.max_stagnation_days)
+        self.assertEqual(metrics.max_position_exposure, 1)
+        self.assertEqual(metrics.max_lots_exposure, 1.0)
+
+    def test_optional_bars_and_r_metrics_are_computed_when_supplied(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[
+                trade("1", datetime(2024, 1, 2), 100.0, bars=4, r_multiple=1.0),
+                trade("2", datetime(2024, 1, 3), -50.0, bars=8, r_multiple=-0.5),
+                trade("3", datetime(2024, 1, 4), 25.0, bars=12, r_multiple=0.25),
+            ],
+        )
+        metrics = analyze(report).metrics
+        self.assertAlmostEqual(metrics.average_bars_in_trade, 8.0)
+        self.assertAlmostEqual(metrics.average_bars_in_wins, 8.0)
+        self.assertAlmostEqual(metrics.average_bars_in_losses, 8.0)
+        self.assertAlmostEqual(metrics.r_expectancy, 0.25)
+        self.assertAlmostEqual(metrics.r_expectancy_score, 0.25 * (3.0 ** 0.5))
+
+    def test_unavailable_screenshot_metrics_are_explicitly_diagnostic(self) -> None:
+        result = analyze(Report(initial_deposit=1000.0))
+        self.assertIsNone(result.metrics.cancelled_expired_trades)
+        self.assertIsNone(result.metrics.average_bars_in_trade)
+        self.assertIsNone(result.metrics.r_expectancy)
+        codes = {warning.code for warning in result.warnings}
+        self.assertIn("undefined_cancelled_expired", codes)
+        self.assertIn("undefined_bars_metrics", codes)
+        self.assertIn("undefined_r_metrics", codes)
+
+    def test_positions_exposure_counts_overlapping_closed_positions(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[
+                Trade(
+                    "1", "X", TradeSide.LONG, 1.0,
+                    datetime(2024, 1, 1), datetime(2024, 1, 3), 1, 1, 100,
+                ),
+                Trade(
+                    "2", "X", TradeSide.LONG, 0.5,
+                    datetime(2024, 1, 2), datetime(2024, 1, 4), 1, 1, 50,
+                ),
+            ],
+        )
+        metrics = analyze(report).metrics
+        self.assertEqual(metrics.max_position_exposure, 2)
+        self.assertAlmostEqual(metrics.max_lots_exposure, 1.5)
+
+    def test_extended_result_round_trips_through_json_payload(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[trade("1", datetime(2024, 1, 2), 100.0)],
+        )
+        result = analyze(report)
+        restored = type(result).from_dict(result.to_dict())
+        self.assertEqual(restored.monthly_performance, result.monthly_performance)
+        self.assertEqual(restored.metrics.to_dict(), result.metrics.to_dict())
 
     def test_symbol_breakdown(self) -> None:
         report = Report(
