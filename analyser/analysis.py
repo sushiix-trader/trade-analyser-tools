@@ -5,9 +5,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-import math
 from calendar import monthrange
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +14,17 @@ from typing import Any
 
 import numpy as np
 
-from .config import AnalysisConfig
+from .config import AnalysisConfig, SharpeConfig
 from .diagnostics import Diagnostic, ValidationResult
+from .filters import (
+    AllOf,
+    FilterConfig,
+    TradeFilter,
+    TradeSelection,
+    filter_from_dict,
+    filter_fingerprint,
+    select_trades,
+)
 from .equity import CurveSeries, reconstructed_curve, source_balance_curve, source_equity_curve
 from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
@@ -56,6 +64,7 @@ def _report_from_dict(report_data: dict[str, Any]) -> Report:
             allocation_scale=data.get("allocation_scale"),
             bars=data.get("bars"),
             r_multiple=data.get("r_multiple"),
+            open_time_inferred=data.get("open_time_inferred", False),
         )
 
     return Report(
@@ -192,12 +201,127 @@ class AnalysisResult:
     validation: ValidationResult
     warnings: tuple[Diagnostic, ...]
     provenance: dict[str, Any]
+    filter_spec: TradeFilter | None = None
+    filter_config: FilterConfig | None = None
+    selection: TradeSelection | None = None
+    source_report: Report | None = None
+    source_reported_metrics: dict[str, Any] | None = None
+
+    def apply_filters(
+        self,
+        filter_spec: TradeFilter,
+        filter_config: FilterConfig | None = None,
+    ) -> "AnalysisResult":
+        """Return a filtered analysis evaluated from the original report.
+
+        Chained filters are combined against ``source_report`` rather than
+        repeatedly filtering an already-filtered result. Filtered analyses
+        always reconstruct equity from selected completed positions.
+        """
+
+        if not isinstance(filter_spec, TradeFilter):
+            raise TypeError("filter_spec must be a TradeFilter")
+        original = self.source_report or self.report
+        combined = (
+            AllOf(self.filter_spec, filter_spec)
+            if self.filter_spec is not None
+            else filter_spec
+        )
+        active_config = filter_config or self.filter_config or FilterConfig()
+        selected, selection, filter_diagnostics = select_trades(original, combined, active_config)
+        effective_timezone = original.timezone or active_config.report_timezone
+        filtered_metadata = dict(original.metadata)
+        filtered_metadata.update({
+            "filtered": True,
+            "filter_fingerprint": filter_fingerprint(combined, active_config),
+            "selected_trade_count": selection.selected_trade_count,
+            "source_trade_count": selection.source_trade_count,
+        })
+        report_warnings = list(original.warnings)
+        report_warnings.extend(diagnostic.to_dict() for diagnostic in filter_diagnostics)
+        report_warnings.append({
+            "code": "filtered_source_curves_unavailable",
+            "message": "Filtered analysis uses reconstructed closed-position equity; source account curves were not filterable",
+            "severity": "warning",
+            "context": {},
+        })
+        filtered_report = replace(
+            original,
+            trades=selected,
+            timezone=effective_timezone,
+            source_balance_points=[],
+            source_equity_points=[],
+            reported_metrics={},
+            warnings=report_warnings,
+            metadata=filtered_metadata,
+        )
+        config = _analysis_config_from_provenance(self.provenance)
+        filtered = analyze(filtered_report, config=config)
+        filtered_curve_source = "filtered_reconstructed_closed_positions"
+        filtered_balance = replace(filtered.balance, source=filtered_curve_source) if filtered.balance is not None else None
+        filtered_equity = replace(filtered.equity, source=filtered_curve_source) if filtered.equity is not None else None
+        filtered_monthly_performance = replace(
+            filtered.monthly_performance,
+            source=filtered_curve_source,
+            basis="balance",
+        )
+        filtered = replace(
+            filtered,
+            balance=filtered_balance,
+            equity=filtered_equity,
+            monthly_performance=filtered_monthly_performance,
+        )
+        source_validation = self.provenance.get("source_validation") or self.validation.to_dict()
+        validation = ValidationResult(
+            status="not_applicable",
+            checks={"source_validation": source_validation},
+            discrepancies=(),
+        )
+        warnings = list(filtered.warnings)
+        warnings.append(Diagnostic(
+            "filtered_reported_metrics_not_applicable",
+            "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
+            context={"selected_trade_count": selection.selected_trade_count},
+        ))
+        provenance = dict(filtered.provenance)
+        source_report_sha256 = (
+            self.provenance.get("source_report_sha256")
+            or self.provenance.get("input_sha256")
+            or original.metadata.get("input_sha256")
+            or hashlib.sha256(deterministic_json(to_primitive(original)).encode("utf-8")).hexdigest()
+        )
+        provenance.update({
+            "filtered": True,
+            "filter_spec": combined.to_dict(),
+            "filter_config": active_config.to_dict(),
+            "filter_fingerprint": filter_fingerprint(combined, active_config),
+            "source_report_sha256": source_report_sha256,
+            "source_trade_count": selection.source_trade_count,
+            "selected_trade_count": selection.selected_trade_count,
+            "excluded_trade_count": selection.excluded_trade_count,
+            "source_validation": source_validation,
+        })
+        return replace(
+            filtered,
+            reported_metrics={},
+            validation=validation,
+            warnings=tuple(warnings),
+            provenance=provenance,
+            filter_spec=combined,
+            filter_config=active_config,
+            selection=selection,
+            source_report=original,
+            source_reported_metrics=dict(original.reported_metrics),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return to_primitive(self)
+        payload = to_primitive(self)
+        payload["filter_spec"] = self.filter_spec.to_dict() if self.filter_spec is not None else None
+        payload["filter_config"] = self.filter_config.to_dict() if self.filter_config is not None else None
+        return payload
 
     def to_json(self) -> str:
-        return deterministic_json(self)
+        return deterministic_json(self.to_dict())
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AnalysisResult":
@@ -244,6 +368,15 @@ class AnalysisResult:
                 monthly, curve_data.get("source", ""), curve_data.get("basis", "")
             )
 
+        filter_spec_data = payload.get("filter_spec")
+        filter_spec = filter_from_dict(filter_spec_data) if filter_spec_data else None
+        filter_config_data = payload.get("filter_config")
+        filter_config = FilterConfig(**filter_config_data) if filter_config_data is not None else None
+        selection_data = payload.get("selection")
+        selection = TradeSelection.from_dict(selection_data) if selection_data is not None else None
+        source_report_data = payload.get("source_report")
+        source_report = _report_from_dict(source_report_data) if source_report_data is not None else None
+
         validation_data = payload["validation"]
         validation = ValidationResult(
             status=validation_data.get("status", "not_run"),
@@ -265,6 +398,11 @@ class AnalysisResult:
             validation=validation,
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
             provenance=payload.get("provenance", {}),
+            filter_spec=filter_spec,
+            filter_config=filter_config,
+            selection=selection,
+            source_report=source_report,
+            source_reported_metrics=payload.get("source_reported_metrics"),
         )
 
     def to_csv(self, section: str = "monthly") -> str:
@@ -497,12 +635,18 @@ def _provenance(report: Report, config: AnalysisConfig) -> dict[str, Any]:
         "input_size": metadata.get("input_size"),
         "input_format": report.source_format,
         "source_filename": Path(report.source_file).name if report.source_file else None,
-        "parser_version": "1",
+        "parser_version": "2",
         "package_version": "0.1.0",
         "timezone": report.timezone or config.timezone,
         "analysis_config": config.to_dict(),
     }
     return result
+
+
+def _analysis_config_from_provenance(provenance: dict[str, Any]) -> AnalysisConfig:
+    data = dict(provenance.get("analysis_config", {}))
+    sharpe_data = dict(data.pop("sharpe", {}))
+    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data))
 
 
 def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisResult:

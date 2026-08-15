@@ -43,6 +43,7 @@ def normalise_trade(
 
     close_time = parse_datetime(pick("close_time", "closetime", "close", "exit_time"))
     open_time = parse_datetime(pick("open_time", "opentime", "open", "entry_time"))
+    open_time_inferred = open_time is None and close_time is not None
     ticket = pick("ticket", "position_id", "positionid", "id", "order")
     symbol = pick("symbol", "instrument", "instr")
     net_profit_raw = pick("net_profit", "netprofit", "result")
@@ -116,6 +117,7 @@ def normalise_trade(
         magic=parse_int(pick("magic", "magic_number", "magicnumber")),
         bars=parse_int(pick("bars", "bars_in_trade", "bar_count")),
         r_multiple=parse_number(pick("r", "r_multiple", "r_multiple_result", "risk_multiple")),
+        open_time_inferred=open_time_inferred,
     )
 
 

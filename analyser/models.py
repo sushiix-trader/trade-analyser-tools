@@ -64,6 +64,7 @@ class Trade:
     allocation_scale: float | None = None
     bars: int | None = None
     r_multiple: float | None = None
+    open_time_inferred: bool = False
 
     @property
     def gross_profit(self) -> float:

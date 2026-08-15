@@ -51,6 +51,7 @@ def _trade_fields(trade: Trade) -> dict[str, Any]:
         "side": trade.side.value,
         "volume": trade.volume,
         "open_time": trade.open_time,
+        "open_time_inferred": trade.open_time_inferred,
         "close_time": trade.close_time,
         "open_price": trade.open_price,
         "close_price": trade.close_price,

@@ -35,6 +35,7 @@ from .analysis import (
 from .config import AnalysisConfig, SharpeConfig
 from .diagnostics import Diagnostic, ValidationResult
 from .equity import CurveSeries
+from .filters import FilterConfig, TradeFilter
 from .errors import (
     CurrencyMismatchError,
     DuplicatePortfolioMemberError,
@@ -58,6 +59,8 @@ class PortfolioMember:
     description: str
     weight: float = 1.0
     source: InputSource | None = None
+    filters: TradeFilter | None = None
+    filter_config: FilterConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.strategy_name.strip():
@@ -195,10 +198,13 @@ class PortfolioAnalysisResult:
         return self.monthly_drawdown
 
     def to_dict(self) -> dict[str, Any]:
-        return to_primitive(self)
+        payload = to_primitive(self)
+        for index, member in enumerate(self.members):
+            payload["members"][index]["analysis"] = member.analysis.to_dict()
+        return payload
 
     def to_json(self) -> str:
-        return deterministic_json(self)
+        return deterministic_json(self.to_dict())
 
     def to_csv(self, section: str = "monthly") -> str:
         if section == "metrics":
@@ -294,6 +300,8 @@ class PortfolioAnalysisResult:
                     strategy_name=member.strategy_name,
                     description=member.description,
                     weight=weights[member.member_key],
+                    filters=member.analysis.filter_spec,
+                    filter_config=member.analysis.filter_config,
                 ),
                 analysis=member.analysis,
             )
@@ -319,7 +327,13 @@ class PortfolioAnalysisResult:
             analyzed.append(
                 AnalyzedPortfolioMember(
                     member_key=member.member_key,
-                    member=PortfolioMember(name, detail, member.weight),
+                    member=PortfolioMember(
+                        name,
+                        detail,
+                        member.weight,
+                        filters=member.analysis.filter_spec,
+                        filter_config=member.analysis.filter_config,
+                    ),
                     analysis=member.analysis,
                 )
             )
@@ -448,6 +462,8 @@ def _analyze_member_bytes(
     report = load_report(data)
     report.source_file = filename
     result = analyze(report, analysis_config)
+    if member.filters is not None:
+        result = result.apply_filters(member.filters, member.filter_config)
     return AnalyzedPortfolioMember(key, member, result)
 
 
@@ -991,7 +1007,7 @@ def combine_analyses(
         "currency": currency,
         "timezone": timezone,
         "portfolio_config": config.to_dict(),
-        "parser_version": "1",
+        "parser_version": "2",
         "package_version": "0.1.0",
     }
     return PortfolioAnalysisResult(

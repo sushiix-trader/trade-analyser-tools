@@ -72,6 +72,42 @@ result = artifact.result
 call. The cache key is deterministic for the report bytes and analysis
 configuration.
 
+For trade filtering, use the typed filter API rather than a custom script:
+
+```python
+from datetime import time
+from analyser import (
+    AllOf, FilterConfig, ForexSession, LongOnly, SessionFilter,
+    TimeOfDayFilter,
+)
+
+filtered = result.apply_filters(
+    AllOf(
+        LongOnly(),
+        SessionFilter(ForexSession.LONDON),
+        TimeOfDayFilter(time(8, 0), time(12, 0), timezone="Europe/London"),
+    ),
+    FilterConfig(report_timezone="UTC"),
+)
+```
+
+Filtering uses canonical completed positions and their `open_time`; it never
+nets trades or mutates the original `AnalysisResult`. Available v1 predicates
+are `LongOnly`, `ShortOnly`, `OpenDateRangeFilter`, `TimeOfDayFilter`, and
+named Sydney/Tokyo/London/New York `SessionFilter`. Compose them with `AllOf`,
+`AnyOf`, or `Not`. Boundaries are `[start, end)`. The parsed report timezone is
+authoritative; otherwise temporal filters require an explicit IANA timezone in
+`FilterConfig`. Filtered curves are reconstructed from the selected trades,
+source curves are not reused, and selection/audit metadata is available through
+`result.selection`. Chain filters on an `AnalysisResult` safely: the package
+re-evaluates the original report rather than a previously filtered subset.
+
+Use `filters=` and `filter_config=` on each `PortfolioMember` to filter before
+allocation. Use `AnalysisStore.filter_or_load()` or
+`AnalysisStore.analyze_filtered_or_load()` for deterministic filtered-result
+retrieval. Filter specifications/configuration and the source report hash are
+part of the cache key.
+
 For Monte Carlo robustness work, use the public simulation API rather than a
 custom randomisation script:
 
@@ -110,6 +146,11 @@ user-facing workflow must remain the package API.
 - Treat one report as one strategy in portfolio work; never net member trades.
 - Require common currency and timezone before portfolio aggregation.
 - Use static capital-allocation weights and the typed portfolio matrices.
+- Apply member filters before portfolio allocation; never combine filtered
+  numbers by hand or net member trades.
+- Use explicit IANA/report timezone context for temporal filters and emit
+  warnings when open times are missing/inferred or configuration conflicts with
+  the report timezone.
 
 ### Verification
 

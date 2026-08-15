@@ -37,3 +37,11 @@ class DuplicatePortfolioMemberError(PortfolioError):
 
 class PortfolioValidationError(PortfolioError):
     """A portfolio warning was promoted to an error by strict validation."""
+
+
+class FilterError(ValueError):
+    """Base class for invalid trade-filter configurations."""
+
+
+class FilterConfigurationError(FilterError):
+    """A filter cannot be evaluated deterministically with the supplied context."""
