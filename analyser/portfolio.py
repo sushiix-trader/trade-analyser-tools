@@ -53,6 +53,7 @@ from .metrics import Metrics, compute_metrics
 from .models import Report, Trade
 from .periods import PeriodWindow, SamplePeriodConfig
 from .serialization import deterministic_json, to_primitive
+from .what_if import WhatIfConfig
 
 _SUPPORTED_PRIMARY_CURVES = frozenset(("source_then_reconstructed", "source", "reconstructed"))
 
@@ -68,6 +69,7 @@ class PortfolioMember:
     filters: TradeFilter | None = None
     filter_config: FilterConfig | None = None
     sample_periods: SamplePeriodConfig | None = None
+    what_if: WhatIfConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.strategy_name.strip():
@@ -196,6 +198,10 @@ class PortfolioPeriodResult:
     @property
     def monthly_performance(self) -> MonthlyPerformanceTable:
         return self.analysis.monthly_performance
+
+    @property
+    def what_if(self):
+        return self.analysis.what_if
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -379,6 +385,7 @@ class PortfolioAnalysisResult:
                     filters=member.analysis.filter_spec,
                     filter_config=member.analysis.filter_config,
                     sample_periods=member.analysis.sample_period_config,
+                    what_if=member.analysis.what_if.config if member.analysis.what_if else None,
                 ),
                 analysis=member.analysis,
             )
@@ -411,6 +418,7 @@ class PortfolioAnalysisResult:
                         filters=member.analysis.filter_spec,
                         filter_config=member.analysis.filter_config,
                         sample_periods=member.analysis.sample_period_config,
+                        what_if=member.analysis.what_if.config if member.analysis.what_if else None,
                     ),
                     analysis=member.analysis,
                 )
@@ -439,11 +447,13 @@ class PortfolioAnalysisResult:
         config_data = dict(payload["config"])
         analysis_data = dict(config_data.pop("analysis_config", {}))
         sharpe_data = dict(analysis_data.pop("sharpe", {}))
+        what_if_data = analysis_data.pop("what_if", None)
         config = PortfolioConfig(
             **config_data,
             analysis_config=AnalysisConfig(
                 **analysis_data,
                 sharpe=SharpeConfig(**sharpe_data),
+                what_if=WhatIfConfig.from_dict(what_if_data),
             ),
         )
         if payload.get("correlations"):
@@ -561,6 +571,7 @@ def _analyze_member_bytes(
     effective_config = replace(
         analysis_config,
         sample_periods=member.sample_periods or analysis_config.sample_periods,
+        what_if=member.what_if or analysis_config.what_if,
     )
     result = analyze(report, effective_config)
     if member.filters is not None:

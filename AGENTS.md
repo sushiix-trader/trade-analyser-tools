@@ -25,6 +25,7 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.validation`
 - `result.warnings`
 - `result.provenance`
+- `result.what_if` when a deterministic trade re-sizing mode is enabled
 - `result.periods["in_sample"]` and `result.periods["out_of_sample"]` when an explicit `SamplePeriodConfig` is enabled
 - `result.daily_profit` for normalized realized daily net-profit points
 
@@ -93,7 +94,11 @@ warning. Daily realized-profit correlation is eager at
 `result.correlations.daily_profit`, with raw `series`, capital-scaled
 `allocated_series`, labelled `matrix`, observation count, and period-scoped
 results in `result.correlations.by_period`. Undefined correlation cells are
-`None` with diagnostics.
+`None` with diagnostics. Use
+`save_correlation_heatmap(result.correlations.daily_profit, destination)` for
+the deterministic table-like visual artifact. The heat map uses a fixed `[-1, 1]`
+scale, two-decimal display labels, and grey undefined cells without
+recalculating the canonical matrix.
 
 For repeated report retrieval, use the package cache rather than writing a
 custom persistence script:
@@ -127,6 +132,22 @@ filtered = result.apply_filters(
     FilterConfig(report_timezone="UTC"),
 )
 ```
+
+What-if re-sizing is also a typed platform operation, never a custom script:
+
+```python
+from analyser import WhatIfConfig
+
+sized = result.apply_what_if(WhatIfConfig.flat_lot(0.10))
+```
+
+Use `AnalysisConfig(what_if=...)` for eager sizing during file analysis.
+Risk-based sizing requires an explicit `InstrumentSpec` and explicit stop loss;
+missing/invalid stops are excluded with warnings, and the transformed result
+retains `source_report`, `what_if.audits`, and deterministic provenance. Flat
+lot, percentage-risk, and dollar-risk modes are mutually exclusive. What-if
+sizing occurs after filters/sample-period selection and before portfolio
+allocation. It scales profit, swap, and commission consistently.
 
 Filtering uses canonical completed positions and their `open_time`; it never
 nets trades or mutates the original `AnalysisResult`. Available v1 predicates
@@ -194,6 +215,10 @@ user-facing workflow must remain the package API.
 - Classify sample periods by completed-position `open_time`, preserve
   segment-relative opening capital, and warn on cross-boundary closes or trades
   outside named windows.
+- Use typed what-if sizing only; keep flat-lot, percentage-risk, and
+  dollar-risk modes mutually exclusive and deterministic.
+- Require explicit stops and instrument metadata for risk-based sizing; exclude
+  unsupported trades with warnings and retain a per-trade sizing audit.
 - Use broker/report timestamps for daily realized-profit correlation, align
   strategy series over overlapping active dates, expose raw and allocated
   series, and return `None` plus diagnostics for undefined cells.

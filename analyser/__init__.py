@@ -23,7 +23,13 @@ from .analysis import (
     analyze_file,
 )
 from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
-from .charts import ChartConfig, render_equity_drawdown_chart, save_equity_drawdown_chart
+from .charts import (
+    ChartConfig,
+    render_correlation_heatmap,
+    render_equity_drawdown_chart,
+    save_correlation_heatmap,
+    save_equity_drawdown_chart,
+)
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .correlation import CorrelationResults, DailyProfitCorrelationResult, DailyProfitPoint
 from .config import AnalysisConfig, SharpeConfig
@@ -64,11 +70,14 @@ from .errors import (
     SamplePeriodError,
     UnhydratedInputError,
     UnsupportedReportError,
+    WhatIfConfigurationError,
+    WhatIfError,
 )
 from .load import InputSource, load_report
 from .matrices import AnalysisMatrix
 from .metrics import Metrics, compute_metrics
 from .models import AccountPoint, Report, Trade, TradeSide
+from .what_if import InstrumentSpec, SizingAudit, WhatIfConfig, WhatIfResult, transform_report
 from .portfolio import (
     AnalyzedPortfolioMember,
     PortfolioAnalysisResult,
@@ -87,7 +96,13 @@ __all__ = [
     "AnalysisStore",
     "render_equity_drawdown_chart",
     "save_equity_drawdown_chart",
+    "render_correlation_heatmap",
+    "save_correlation_heatmap",
     "AnalysisConfig",
+    "InstrumentSpec",
+    "SizingAudit",
+    "WhatIfConfig",
+    "WhatIfResult",
     "ChartConfig",
     "AnalysisMatrix",
     "AnalysisResult",
@@ -149,11 +164,14 @@ __all__ = [
     "TimezoneMismatchError",
     "UnhydratedInputError",
     "UnsupportedReportError",
+    "WhatIfConfigurationError",
+    "WhatIfError",
     "analyze",
     "analyze_file",
     "build_equity",
     "compare_reports",
     "compute_metrics",
+    "transform_report",
     "analyze_portfolio",
     "combine_analyses",
     "load_report",

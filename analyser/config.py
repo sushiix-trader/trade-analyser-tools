@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .periods import SamplePeriodConfig
+from .what_if import WhatIfConfig
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class AnalysisConfig:
     warn_via_python_warnings: bool = False
     sharpe: SharpeConfig = field(default_factory=SharpeConfig)
     sample_periods: SamplePeriodConfig | None = None
+    what_if: WhatIfConfig | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

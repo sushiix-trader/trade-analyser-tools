@@ -225,6 +225,7 @@ class AnalysisStore:
                 "filters": member.filters.to_dict() if member.filters is not None else None,
                 "filter_config": member.filter_config.to_dict() if member.filter_config is not None else None,
                 "sample_periods": member.sample_periods.to_dict() if member.sample_periods is not None else None,
+                "what_if": member.what_if.to_dict() if member.what_if is not None else None,
             })
         key = self.key_for_portfolio(descriptors, config)
         path = self.portfolio_path_for(key)
@@ -237,6 +238,7 @@ class AnalysisStore:
             effective_analysis_config = replace(
                 config.analysis_config,
                 sample_periods=member.sample_periods or config.analysis_config.sample_periods,
+                what_if=member.what_if or config.analysis_config.what_if,
             )
             individual_key = self.key_for_bytes(data, effective_analysis_config)
             individual_path = self.path_for(individual_key)

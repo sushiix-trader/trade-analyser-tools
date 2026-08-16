@@ -30,6 +30,7 @@ from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
 from .periods import PeriodWindow, SamplePeriodConfig
 from .models import Report, Trade
+from .what_if import WhatIfConfig, WhatIfResult, transform_report
 from .serialization import deterministic_json, to_primitive
 
 
@@ -228,6 +229,10 @@ class PeriodAnalysisResult:
         return self.analysis.monthly_performance
 
     @property
+    def what_if(self) -> WhatIfResult | None:
+        return self.analysis.what_if
+
+    @property
     def validation(self) -> ValidationResult:
         return self.analysis.validation
 
@@ -283,6 +288,7 @@ class AnalysisResult:
     selection: TradeSelection | None = None
     source_report: Report | None = None
     source_reported_metrics: dict[str, Any] | None = None
+    what_if: WhatIfResult | None = None
     sample_period_config: SamplePeriodConfig | None = None
     periods: dict[str, PeriodAnalysisResult] = field(default_factory=dict)
 
@@ -334,7 +340,22 @@ class AnalysisResult:
                 reported_metrics={},
                 warnings=[],
             )
-            period_analysis = analyze(period_report, config)
+            period_analysis = analyze(
+                period_report,
+                replace(config, what_if=None) if self.what_if is not None else config,
+            )
+            if self.what_if is not None:
+                period_analysis = replace(
+                    period_analysis,
+                    what_if=period.analysis.what_if,
+                    source_report=period.analysis.source_report,
+                    source_reported_metrics=period.analysis.source_reported_metrics,
+                    provenance={
+                        **period_analysis.provenance,
+                        "analysis_config": config.to_dict(),
+                        "what_if": self.what_if.to_dict(),
+                    },
+                )
             period_warnings = list(period.warnings)
             period_warnings.extend(period_diagnostics)
             period_warnings.extend(period_analysis.warnings)
@@ -525,7 +546,7 @@ class AnalysisResult:
 
         if not isinstance(sample_periods, SamplePeriodConfig) or not sample_periods.enabled:
             raise ValueError("sample_periods must be an enabled SamplePeriodConfig")
-        original = self.source_report or self.report
+        original = self.report
         source_curve = reconstructed_curve(original)
         source_trade_count = len(original.trades)
         diagnostics = list(self.warnings)
@@ -632,6 +653,71 @@ class AnalysisResult:
             return result
         return result.apply_filters(filters, filter_config)
 
+    def apply_what_if(self, config: WhatIfConfig) -> "AnalysisResult":
+        """Return a fresh analysis re-sized from the original canonical report."""
+
+        if not isinstance(config, WhatIfConfig):
+            raise TypeError("config must be a WhatIfConfig")
+        original = self.source_report or self.report
+        base_report = original
+        selection = self.selection
+        filter_diagnostics: list[Diagnostic] = []
+        if self.filter_spec is not None:
+            selected, selection, filter_diagnostics = select_trades(
+                original, self.filter_spec, self.filter_config or FilterConfig()
+            )
+            base_report = replace(
+                original,
+                trades=selected,
+                source_balance_points=[],
+                source_equity_points=[],
+                reported_metrics={},
+                warnings=list(original.warnings),
+            )
+        analysis_config = _analysis_config_from_provenance(self.provenance)
+        analysis_config = replace(
+            analysis_config,
+            what_if=config,
+            sample_periods=self.sample_period_config,
+        )
+        transformed = analyze(base_report, analysis_config)
+        warnings = list(transformed.warnings)
+        warnings.extend(filter_diagnostics)
+        provenance = dict(transformed.provenance)
+        provenance.update({
+            "what_if": config.to_dict(),
+            "source_report_sha256": (
+                self.provenance.get("source_report_sha256")
+                or self.provenance.get("input_sha256")
+                or original.metadata.get("input_sha256")
+            ),
+        })
+        if self.filter_spec is not None:
+            warnings.append(Diagnostic(
+                "filtered_reported_metrics_not_applicable",
+                "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
+                context={"selected_trade_count": selection.selected_trade_count},
+            ))
+            transformed = replace(
+                transformed,
+                reported_metrics={},
+                validation=ValidationResult(
+                    status="not_applicable",
+                    checks={"source_validation": self.provenance.get("source_validation", self.validation.to_dict())},
+                    discrepancies=(),
+                ),
+            )
+        return replace(
+            transformed,
+            warnings=tuple(warnings),
+            provenance=provenance,
+            filter_spec=self.filter_spec,
+            filter_config=self.filter_config,
+            selection=selection,
+            source_report=original,
+            source_reported_metrics=dict(original.reported_metrics),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         payload = to_primitive(self)
         payload["filter_spec"] = self.filter_spec.to_dict() if self.filter_spec is not None else None
@@ -721,6 +807,7 @@ class AnalysisResult:
             selection=selection,
             source_report=source_report,
             source_reported_metrics=payload.get("source_reported_metrics"),
+            what_if=WhatIfResult.from_dict(payload["what_if"]) if payload.get("what_if") else None,
             sample_period_config=SamplePeriodConfig.from_dict(payload.get("sample_period_config")),
             periods={
                 name: PeriodAnalysisResult.from_dict(item)
@@ -970,7 +1057,8 @@ def _analysis_config_from_provenance(provenance: dict[str, Any]) -> AnalysisConf
     data = dict(provenance.get("analysis_config", {}))
     sharpe_data = dict(data.pop("sharpe", {}))
     sample_periods = SamplePeriodConfig.from_dict(data.pop("sample_periods", None))
-    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data), sample_periods=sample_periods)
+    what_if = WhatIfConfig.from_dict(data.pop("what_if", None))
+    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data), sample_periods=sample_periods, what_if=what_if)
 
 
 def _balance_before(curve: CurveSeries, timestamp: datetime) -> float:
@@ -983,10 +1071,9 @@ def _balance_before(curve: CurveSeries, timestamp: datetime) -> float:
     return value
 
 
-def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisResult:
-    """Eagerly calculate the full v1 analysis result."""
+def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
+    """Calculate the full analysis after any optional report transformation."""
 
-    config = config or AnalysisConfig()
     sample_periods = config.sample_periods
     base_config = replace(config, sample_periods=None)
     diagnostics = [Diagnostic(**warning) for warning in report.warnings]
@@ -1025,6 +1112,27 @@ def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisRes
         periods={},
     )
     return result.with_sample_periods(sample_periods) if sample_periods is not None and sample_periods.enabled else result
+
+
+def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisResult:
+    """Eagerly calculate a full analysis, optionally applying what-if sizing."""
+
+    config = config or AnalysisConfig()
+    if config.what_if is None:
+        return _analyze_core(report, config)
+    transformed_report, what_if = transform_report(report, config.what_if)
+    result = _analyze_core(transformed_report, replace(config, what_if=None))
+    provenance = dict(result.provenance)
+    provenance["analysis_config"] = config.to_dict()
+    provenance["what_if"] = what_if.to_dict()
+    return replace(
+        result,
+        warnings=tuple(list(result.warnings) + list(what_if.warnings)),
+        provenance=provenance,
+        source_report=report,
+        source_reported_metrics=dict(report.reported_metrics),
+        what_if=what_if,
+    )
 
 
 def analyze_file(source: InputSource, config: AnalysisConfig | None = None) -> AnalysisResult:

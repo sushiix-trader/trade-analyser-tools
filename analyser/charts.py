@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from .matrices import AnalysisMatrix
+
 
 
 @dataclass(frozen=True)
@@ -219,4 +221,126 @@ def save_equity_drawdown_chart(
         show_sample_periods=show_sample_periods,
     )
     path.write_bytes(data)
+    return path
+
+
+
+def _correlation_source(source: Any) -> tuple[AnalysisMatrix, str, int | None]:
+    """Resolve a labelled correlation matrix without recalculating it."""
+
+    if isinstance(source, AnalysisMatrix):
+        return source, source.value_type, None
+    matrix = getattr(source, "matrix", None)
+    if not isinstance(matrix, AnalysisMatrix):
+        raise TypeError("source must be an AnalysisMatrix or correlation result")
+    return matrix, str(getattr(source, "scope", "correlation")), getattr(source, "observations", None)
+
+
+def render_correlation_heatmap(
+    source: Any,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+    decimals: int = 2,
+) -> bytes:
+    """Render a deterministic labelled correlation heat map.
+
+    ``source`` is a ``DailyProfitCorrelationResult`` or ``AnalysisMatrix``.
+    The matrix is consumed as-is; this function never recalculates correlation.
+    Undefined cells are grey and rendered as ``N/A``.  Display precision is
+    configurable, while the source matrix retains its original values.
+    """
+
+    if image_format.lower() not in {"png", "svg"}:
+        raise ValueError("image_format must be 'png' or 'svg'")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+    if decimals < 0:
+        raise ValueError("decimals must be non-negative")
+    matrix, scope, observations = _correlation_source(source)
+    if matrix.shape[0] != matrix.shape[1]:
+        raise ValueError("correlation heat maps require a square matrix")
+    if matrix.row_labels != matrix.column_labels:
+        raise ValueError("correlation heat maps require identical row and column labels")
+
+    matplotlib, _, plt = _matplotlib()
+    values = matrix.to_numpy()
+    masked = np.ma.masked_invalid(values)
+    cmap = matplotlib.colormaps.get_cmap("RdBu").copy()
+    cmap.set_bad("#bdbdbd")
+    size = max(5.5, min(12.0, 3.8 + 0.65 * len(matrix.row_labels)))
+    subtitle = f"{scope.replace('_', ' ').title()}"
+    if observations is not None:
+        subtitle += f" | {observations:,} daily observations"
+
+    with matplotlib.rc_context(
+        {
+            "figure.dpi": dpi,
+            "savefig.dpi": dpi,
+            "font.family": "DejaVu Sans",
+            "axes.grid": False,
+        }
+    ):
+        fig, axis = plt.subplots(figsize=(size, size * 0.88), constrained_layout=True)
+        image = axis.imshow(masked, cmap=cmap, vmin=-1.0, vmax=1.0, aspect="equal")
+        axis.set_xticks(np.arange(len(matrix.column_labels)), labels=matrix.column_labels, rotation=45, ha="right")
+        axis.set_yticks(np.arange(len(matrix.row_labels)), labels=matrix.row_labels)
+        axis.set_xlabel("Strategy")
+        axis.set_ylabel("Strategy")
+        title_text = title or f"Daily profit correlation heat map\n{subtitle}"
+        if len(title_text) > 42 and " — " in title_text:
+            title_text = title_text.replace(" — ", " —\n", 1)
+        axis.set_title(title_text, fontweight="bold", fontsize=12, pad=14)
+        colorbar = fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+        colorbar.set_label("Correlation")
+        for row_index, row in enumerate(matrix.values):
+            for column_index, value in enumerate(row):
+                # A correlation matrix's diagonal is conventionally 1.0 even
+                # when a degenerate series was marked undefined by analysis.
+                display_value = 1.0 if row_index == column_index and value is None else value
+                if display_value is None:
+                    label = "N/A"
+                    colour = "#333333"
+                else:
+                    label = f"{display_value:.{decimals}f}"
+                    colour = "white" if abs(float(display_value)) >= 0.5 else "#222222"
+                axis.text(column_index, row_index, label, ha="center", va="center", color=colour, fontsize=10)
+        axis.set_xticks(np.arange(-0.5, len(matrix.column_labels), 1), minor=True)
+        axis.set_yticks(np.arange(-0.5, len(matrix.row_labels), 1), minor=True)
+        axis.grid(which="minor", color="white", linestyle="-", linewidth=1.5)
+        axis.tick_params(which="minor", bottom=False, left=False)
+        output = io.BytesIO()
+        fig.savefig(
+            output,
+            format=image_format.lower(),
+            dpi=dpi,
+            metadata={"Software": "trade-analyser-tools"},
+        )
+        plt.close(fig)
+    return output.getvalue()
+
+
+def save_correlation_heatmap(
+    source: Any,
+    destination: str | Path,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+    decimals: int = 2,
+) -> Path:
+    """Render and save a correlation heat map, returning its path."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        render_correlation_heatmap(
+            source,
+            title=title,
+            image_format=image_format,
+            dpi=dpi,
+            decimals=decimals,
+        )
+    )
     return path

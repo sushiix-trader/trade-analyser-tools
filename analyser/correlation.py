@@ -206,6 +206,9 @@ def build_daily_profit_correlation(
         ]
         for left, left_values in enumerate(arrays):
             for right, right_values in enumerate(arrays):
+                if left == right:
+                    correlation[left, right] = 1.0
+                    continue
                 left_std = float(np.std(left_values, ddof=1)) if observations > 1 else 0.0
                 right_std = float(np.std(right_values, ddof=1)) if observations > 1 else 0.0
                 if left_std == 0.0 or right_std == 0.0:

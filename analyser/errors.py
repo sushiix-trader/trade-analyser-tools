@@ -53,3 +53,11 @@ class SamplePeriodError(ValueError):
 
 class SamplePeriodConfigurationError(SamplePeriodError):
     """A named sample-period configuration is incomplete or ambiguous."""
+
+
+class WhatIfError(ValueError):
+    """The what-if transformation could not produce a valid analysis."""
+
+
+class WhatIfConfigurationError(WhatIfError):
+    """The what-if mode or its deterministic inputs are invalid."""
