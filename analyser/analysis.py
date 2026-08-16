@@ -6,7 +6,7 @@ import csv
 import hashlib
 import io
 from calendar import monthrange
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +28,7 @@ from .filters import (
 from .equity import CurveSeries, reconstructed_curve, source_balance_curve, source_equity_curve
 from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
+from .periods import PeriodWindow, SamplePeriodConfig
 from .models import Report, Trade
 from .serialization import deterministic_json, to_primitive
 
@@ -186,6 +187,82 @@ class CurveResult:
 
 
 @dataclass(frozen=True)
+class PeriodAnalysisResult:
+    """Analysis of completed positions assigned to one named sample period."""
+
+    name: str
+    window: PeriodWindow
+    analysis: "AnalysisResult"
+    source_trade_count: int
+    selected_trade_count: int
+    cross_boundary_trade_count: int
+    excluded_trade_count: int
+    warnings: tuple[Diagnostic, ...] = ()
+
+    @property
+    def report(self) -> Report:
+        return self.analysis.report
+
+    @property
+    def metrics(self) -> Metrics:
+        return self.analysis.metrics
+
+    @property
+    def balance(self) -> CurveResult:
+        return self.analysis.balance
+
+    @property
+    def equity(self) -> CurveResult:
+        return self.analysis.equity
+
+    @property
+    def monthly(self) -> tuple[MonthlyPerformance, ...]:
+        return self.analysis.monthly
+
+    @property
+    def monthly_drawdown(self) -> tuple[MonthlyDrawdown, ...]:
+        return self.analysis.monthly_drawdown
+
+    @property
+    def monthly_performance(self) -> MonthlyPerformanceTable:
+        return self.analysis.monthly_performance
+
+    @property
+    def validation(self) -> ValidationResult:
+        return self.analysis.validation
+
+    @property
+    def daily_profit(self):
+        """Daily realized net-profit points for this period."""
+        return self.analysis.daily_profit
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "window": self.window.to_dict(),
+            "analysis": self.analysis.to_dict(),
+            "source_trade_count": self.source_trade_count,
+            "selected_trade_count": self.selected_trade_count,
+            "cross_boundary_trade_count": self.cross_boundary_trade_count,
+            "excluded_trade_count": self.excluded_trade_count,
+            "warnings": [warning.to_dict() for warning in self.warnings],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "PeriodAnalysisResult":
+        return cls(
+            name=payload["name"],
+            window=PeriodWindow.from_dict(payload["window"]),
+            analysis=AnalysisResult.from_dict(payload["analysis"]),
+            source_trade_count=payload["source_trade_count"],
+            selected_trade_count=payload["selected_trade_count"],
+            cross_boundary_trade_count=payload["cross_boundary_trade_count"],
+            excluded_trade_count=payload["excluded_trade_count"],
+            warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", ())),
+        )
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     report: Report
     metrics: Metrics
@@ -206,6 +283,120 @@ class AnalysisResult:
     selection: TradeSelection | None = None
     source_report: Report | None = None
     source_reported_metrics: dict[str, Any] | None = None
+    sample_period_config: SamplePeriodConfig | None = None
+    periods: dict[str, PeriodAnalysisResult] = field(default_factory=dict)
+
+    def _apply_filter_after_periods(
+        self,
+        filter_spec: TradeFilter,
+        filter_config: FilterConfig | None = None,
+    ) -> "AnalysisResult":
+        """Filter a freshly classified period set without changing segment capital."""
+
+        original = self.source_report or self.report
+        combined = (
+            AllOf(self.filter_spec, filter_spec)
+            if self.filter_spec is not None
+            else filter_spec
+        )
+        active_config = filter_config or self.filter_config or FilterConfig()
+        selected, selection, filter_diagnostics = select_trades(original, combined, active_config)
+        effective_timezone = original.timezone or active_config.report_timezone
+        filtered_report = replace(
+            original,
+            trades=selected,
+            timezone=effective_timezone,
+            source_balance_points=[],
+            source_equity_points=[],
+            reported_metrics={},
+            warnings=list(original.warnings),
+            metadata={
+                **original.metadata,
+                "filtered": True,
+                "filter_fingerprint": filter_fingerprint(combined, active_config),
+            },
+        )
+        config = replace(_analysis_config_from_provenance(self.provenance), sample_periods=None)
+        filtered = analyze(filtered_report, config)
+        fresh_periods = analyze(original, config).with_sample_periods(self.sample_period_config).periods
+        period_results: dict[str, PeriodAnalysisResult] = {}
+        for name, period in fresh_periods.items():
+            period_selected, period_selection, period_diagnostics = select_trades(
+                period.analysis.report,
+                combined,
+                active_config,
+            )
+            period_report = replace(
+                period.analysis.report,
+                trades=period_selected,
+                source_balance_points=[],
+                source_equity_points=[],
+                reported_metrics={},
+                warnings=[],
+            )
+            period_analysis = analyze(period_report, config)
+            period_warnings = list(period.warnings)
+            period_warnings.extend(period_diagnostics)
+            period_warnings.extend(period_analysis.warnings)
+            period_results[name] = PeriodAnalysisResult(
+                name=name,
+                window=period.window,
+                analysis=replace(period_analysis, warnings=tuple(period_warnings)),
+                source_trade_count=period.source_trade_count,
+                selected_trade_count=period_selection.selected_trade_count,
+                cross_boundary_trade_count=period.cross_boundary_trade_count,
+                excluded_trade_count=period.source_trade_count - period_selection.selected_trade_count,
+                warnings=tuple(period_warnings),
+            )
+        source_validation = self.provenance.get("source_validation") or self.validation.to_dict()
+        warnings = list(filtered.warnings)
+        warnings.extend(filter_diagnostics)
+        warnings.extend(
+            diagnostic for period in period_results.values() for diagnostic in period.warnings
+        )
+        warnings.append(Diagnostic(
+            "filtered_reported_metrics_not_applicable",
+            "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
+            context={"selected_trade_count": selection.selected_trade_count},
+        ))
+        source_report_sha256 = (
+            self.provenance.get("source_report_sha256")
+            or self.provenance.get("input_sha256")
+            or original.metadata.get("input_sha256")
+            or hashlib.sha256(deterministic_json(to_primitive(original)).encode("utf-8")).hexdigest()
+        )
+        provenance = dict(filtered.provenance)
+        provenance.update({
+            "filtered": True,
+            "filter_spec": combined.to_dict(),
+            "filter_config": active_config.to_dict(),
+            "filter_fingerprint": filter_fingerprint(combined, active_config),
+            "source_report_sha256": source_report_sha256,
+            "source_trade_count": selection.source_trade_count,
+            "selected_trade_count": selection.selected_trade_count,
+            "excluded_trade_count": selection.excluded_trade_count,
+            "source_validation": source_validation,
+            "sample_period_config": self.sample_period_config.to_dict(),
+            "sample_period_then_filter": True,
+        })
+        return replace(
+            filtered,
+            reported_metrics={},
+            validation=ValidationResult(
+                status="not_applicable",
+                checks={"source_validation": source_validation},
+                discrepancies=(),
+            ),
+            warnings=tuple(warnings),
+            provenance=provenance,
+            filter_spec=combined,
+            filter_config=active_config,
+            selection=selection,
+            source_report=original,
+            source_reported_metrics=dict(original.reported_metrics),
+            sample_period_config=self.sample_period_config,
+            periods=period_results,
+        )
 
     def apply_filters(
         self,
@@ -221,6 +412,8 @@ class AnalysisResult:
 
         if not isinstance(filter_spec, TradeFilter):
             raise TypeError("filter_spec must be a TradeFilter")
+        if self.sample_period_config is not None:
+            return self._apply_filter_after_periods(filter_spec, filter_config)
         original = self.source_report or self.report
         combined = (
             AllOf(self.filter_spec, filter_spec)
@@ -314,6 +507,131 @@ class AnalysisResult:
             source_reported_metrics=dict(original.reported_metrics),
         )
 
+    @property
+    def daily_profit(self):
+        """Daily realized net-profit points for the canonical report trades."""
+        from .correlation import DailyProfitPoint
+
+        by_day: dict[Any, float] = {}
+        for trade in self.report.ordered_trades():
+            if trade.close_time is None:
+                continue
+            day = trade.close_time.date()
+            by_day[day] = by_day.get(day, 0.0) + float(trade.profit)
+        return tuple(DailyProfitPoint(day, by_day[day]) for day in sorted(by_day))
+
+    def with_sample_periods(self, sample_periods: SamplePeriodConfig) -> "AnalysisResult":
+        """Eagerly derive named period analyses from the original report."""
+
+        if not isinstance(sample_periods, SamplePeriodConfig) or not sample_periods.enabled:
+            raise ValueError("sample_periods must be an enabled SamplePeriodConfig")
+        original = self.source_report or self.report
+        source_curve = reconstructed_curve(original)
+        source_trade_count = len(original.trades)
+        diagnostics = list(self.warnings)
+        period_results: dict[str, PeriodAnalysisResult] = {}
+        assigned_keys: set[tuple[str, str, str]] = set()
+        base_config = _analysis_config_from_provenance(self.provenance)
+        base_config = replace(base_config, sample_periods=None)
+        for name, window in sample_periods.windows.items():
+            selected = [
+                trade for trade in original.ordered_trades()
+                if window.contains(trade.open_time)
+            ]
+            selected_keys = {
+                (trade.ticket, trade.position_id or "", trade.symbol)
+                for trade in selected
+            }
+            assigned_keys.update(selected_keys)
+            period_warnings: list[Diagnostic] = []
+            cross_boundary = 0
+            for trade in selected:
+                if trade.open_time_inferred:
+                    period_warnings.append(Diagnostic(
+                        "sample_period_inferred_open_time",
+                        "A sample-period trade used an inferred open time",
+                        context={"period": name, "ticket": trade.ticket},
+                    ))
+                if trade.close_time is None or not window.contains(trade.close_time):
+                    cross_boundary += 1
+                    period_warnings.append(Diagnostic(
+                        "sample_period_cross_boundary_trade",
+                        "A completed position opened in the period but closed outside its boundaries",
+                        context={
+                            "period": name,
+                            "ticket": trade.ticket,
+                            "open_time": trade.open_time.isoformat() if trade.open_time else None,
+                            "close_time": trade.close_time.isoformat() if trade.close_time else None,
+                        },
+                    ))
+            starting_balance = _balance_before(source_curve, window.start)
+            period_report = replace(
+                original,
+                trades=selected,
+                initial_deposit=starting_balance,
+                source_balance_points=[],
+                source_equity_points=[],
+                reported_metrics={},
+                warnings=[],
+                metadata={
+                    **original.metadata,
+                    "sample_period": name,
+                    "sample_period_start": window.start.isoformat(),
+                    "sample_period_end": window.end.isoformat(),
+                },
+            )
+            period_analysis = analyze(period_report, base_config)
+            period_warnings.extend(period_analysis.warnings)
+            period_analysis = replace(
+                period_analysis,
+                warnings=tuple(period_warnings),
+                provenance={
+                    **period_analysis.provenance,
+                    "sample_period": window.to_dict(),
+                    "sample_period_name": name,
+                },
+            )
+            period_results[name] = PeriodAnalysisResult(
+                name=name,
+                window=window,
+                analysis=period_analysis,
+                source_trade_count=source_trade_count,
+                selected_trade_count=len(selected),
+                cross_boundary_trade_count=cross_boundary,
+                excluded_trade_count=source_trade_count - len(selected),
+                warnings=tuple(period_warnings),
+            )
+        outside = source_trade_count - len(assigned_keys)
+        if outside:
+            diagnostics.append(Diagnostic(
+                "sample_period_trades_outside_windows",
+                "Some completed positions were outside all named sample periods",
+                context={"trade_count": outside},
+            ))
+        provenance = dict(self.provenance)
+        provenance["sample_period_config"] = sample_periods.to_dict()
+        return replace(
+            self,
+            sample_period_config=sample_periods,
+            periods=period_results,
+            warnings=tuple(diagnostics),
+            provenance=provenance,
+        )
+
+    def analyze_periods(
+        self,
+        sample_periods: SamplePeriodConfig,
+        *,
+        filters: TradeFilter | None = None,
+        filter_config: FilterConfig | None = None,
+    ) -> "AnalysisResult":
+        """Apply sample-period classification before optional trade filtering."""
+
+        result = self.with_sample_periods(sample_periods)
+        if filters is None:
+            return result
+        return result.apply_filters(filters, filter_config)
+
     def to_dict(self) -> dict[str, Any]:
         payload = to_primitive(self)
         payload["filter_spec"] = self.filter_spec.to_dict() if self.filter_spec is not None else None
@@ -403,6 +721,11 @@ class AnalysisResult:
             selection=selection,
             source_report=source_report,
             source_reported_metrics=payload.get("source_reported_metrics"),
+            sample_period_config=SamplePeriodConfig.from_dict(payload.get("sample_period_config")),
+            periods={
+                name: PeriodAnalysisResult.from_dict(item)
+                for name, item in payload.get("periods", {}).items()
+            },
         )
 
     def to_csv(self, section: str = "monthly") -> str:
@@ -646,19 +969,32 @@ def _provenance(report: Report, config: AnalysisConfig) -> dict[str, Any]:
 def _analysis_config_from_provenance(provenance: dict[str, Any]) -> AnalysisConfig:
     data = dict(provenance.get("analysis_config", {}))
     sharpe_data = dict(data.pop("sharpe", {}))
-    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data))
+    sample_periods = SamplePeriodConfig.from_dict(data.pop("sample_periods", None))
+    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data), sample_periods=sample_periods)
+
+
+def _balance_before(curve: CurveSeries, timestamp: datetime) -> float:
+    value = curve.initial_value
+    for point_time, point_value in zip(curve.timestamps, curve.values):
+        if point_time < timestamp:
+            value = float(point_value)
+        else:
+            break
+    return value
 
 
 def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisResult:
     """Eagerly calculate the full v1 analysis result."""
 
     config = config or AnalysisConfig()
+    sample_periods = config.sample_periods
+    base_config = replace(config, sample_periods=None)
     diagnostics = [Diagnostic(**warning) for warning in report.warnings]
     reconstructed = reconstructed_curve(report)
     source_equity = source_equity_curve(report)
     source_balance = source_balance_curve(report)
     primary = source_equity if source_equity is not None and config.primary_curve == "source_then_reconstructed" else reconstructed
-    metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
+    metrics = compute_metrics(report, primary_curve=primary, config=base_config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
     monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
     validation = _validate(report, metrics)
@@ -670,7 +1006,7 @@ def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisRes
             {"status": validation.status},
         ))
     provenance = _provenance(report, config)
-    return AnalysisResult(
+    result = AnalysisResult(
         report=report,
         metrics=metrics,
         reported_metrics=dict(report.reported_metrics),
@@ -685,7 +1021,10 @@ def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisRes
         validation=validation,
         warnings=tuple(diagnostics),
         provenance=provenance,
+        sample_period_config=None,
+        periods={},
     )
+    return result.with_sample_periods(sample_periods) if sample_periods is not None and sample_periods.enabled else result
 
 
 def analyze_file(source: InputSource, config: AnalysisConfig | None = None) -> AnalysisResult:

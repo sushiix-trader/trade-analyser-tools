@@ -18,13 +18,22 @@ from .analysis import (
     MonthlyPerformance,
     MonthlyPerformanceTable,
     MonthlyPerformanceTableRow,
+    PeriodAnalysisResult,
     analyze,
     analyze_file,
 )
 from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
-from .charts import render_equity_drawdown_chart, save_equity_drawdown_chart
+from .charts import ChartConfig, render_equity_drawdown_chart, save_equity_drawdown_chart
 from .comparison import ReportComparison, TradeMismatch, compare_reports
+from .correlation import CorrelationResults, DailyProfitCorrelationResult, DailyProfitPoint
 from .config import AnalysisConfig, SharpeConfig
+from .periods import (
+    PeriodSuggestion,
+    PeriodSuggestionResult,
+    PeriodWindow,
+    SamplePeriodConfig,
+    suggest_sample_periods,
+)
 from .equity import CurveSeries, EquityCurve, build_equity
 from .filters import (
     AllOf,
@@ -51,6 +60,8 @@ from .errors import (
     ReportError,
     ReportParseError,
     TimezoneMismatchError,
+    SamplePeriodConfigurationError,
+    SamplePeriodError,
     UnhydratedInputError,
     UnsupportedReportError,
 )
@@ -64,6 +75,7 @@ from .portfolio import (
     PortfolioConfig,
     PortfolioMember,
     PortfolioMemberResult,
+    PortfolioPeriodResult,
     analyze_portfolio,
     combine_analyses,
 )
@@ -76,8 +88,10 @@ __all__ = [
     "render_equity_drawdown_chart",
     "save_equity_drawdown_chart",
     "AnalysisConfig",
+    "ChartConfig",
     "AnalysisMatrix",
     "AnalysisResult",
+    "PeriodAnalysisResult",
     "AllOf",
     "AnyOf",
     "FilterConfig",
@@ -94,6 +108,9 @@ __all__ = [
     "TradeSelection",
     "TradeSelectionRecord",
     "CurveSeries",
+    "CorrelationResults",
+    "DailyProfitCorrelationResult",
+    "DailyProfitPoint",
     "EquityCurve",
     "InputSource",
     "Metrics",
@@ -109,6 +126,7 @@ __all__ = [
     "PortfolioConfig",
     "PortfolioMember",
     "PortfolioMemberResult",
+    "PortfolioPeriodResult",
     "CurrencyMismatchError",
     "DuplicatePortfolioMemberError",
     "PortfolioError",
@@ -118,6 +136,13 @@ __all__ = [
     "ReportError",
     "ReportParseError",
     "SharpeConfig",
+    "PeriodSuggestion",
+    "PeriodSuggestionResult",
+    "PeriodWindow",
+    "SamplePeriodConfig",
+    "SamplePeriodConfigurationError",
+    "SamplePeriodError",
+    "suggest_sample_periods",
     "Trade",
     "TradeMismatch",
     "TradeSide",

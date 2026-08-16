@@ -224,6 +224,7 @@ class AnalysisStore:
                 "weight": member.weight,
                 "filters": member.filters.to_dict() if member.filters is not None else None,
                 "filter_config": member.filter_config.to_dict() if member.filter_config is not None else None,
+                "sample_periods": member.sample_periods.to_dict() if member.sample_periods is not None else None,
             })
         key = self.key_for_portfolio(descriptors, config)
         path = self.portfolio_path_for(key)
@@ -233,7 +234,11 @@ class AnalysisStore:
         analyzed: list[AnalyzedPortfolioMember] = []
         for member, data, filename in prepared:
             member_key = hashlib.sha256(data).hexdigest()
-            individual_key = self.key_for_bytes(data, config.analysis_config)
+            effective_analysis_config = replace(
+                config.analysis_config,
+                sample_periods=member.sample_periods or config.analysis_config.sample_periods,
+            )
+            individual_key = self.key_for_bytes(data, effective_analysis_config)
             individual_path = self.path_for(individual_key)
             if individual_path.is_file():
                 base_result = self.load(individual_key)

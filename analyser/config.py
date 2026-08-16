@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .periods import SamplePeriodConfig
+
 
 @dataclass(frozen=True)
 class SharpeConfig:
@@ -29,6 +31,7 @@ class AnalysisConfig:
     strict: bool = False
     warn_via_python_warnings: bool = False
     sharpe: SharpeConfig = field(default_factory=SharpeConfig)
+    sample_periods: SamplePeriodConfig | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

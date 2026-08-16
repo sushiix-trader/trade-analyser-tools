@@ -25,6 +25,8 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.validation`
 - `result.warnings`
 - `result.provenance`
+- `result.periods["in_sample"]` and `result.periods["out_of_sample"]` when an explicit `SamplePeriodConfig` is enabled
+- `result.daily_profit` for normalized realized daily net-profit points
 
 Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
 serializers on `AnalysisResult` for JSON, CSV, or Markdown output. For a
@@ -36,6 +38,32 @@ percentage, return/drawdown ratios, win/loss and payout ratios, gross/average/
 largest trade percentages, streak averages, AHPR, daily/monthly/yearly
 averages, stagnation, exposure, z-score, and SQN. R-expectancy and bars per
 trade are calculated only when the input supplies explicit R/bar values.
+
+For explicit in-sample/out-of-sample work, use the typed period seam rather
+than manually slicing trades:
+
+```python
+from datetime import datetime
+from analyser import AnalysisConfig, PeriodWindow, SamplePeriodConfig, analyze_file
+
+periods = SamplePeriodConfig(
+    windows={
+        "in_sample": PeriodWindow("in_sample", datetime(2011, 1, 1), datetime(2021, 1, 1)),
+        "out_of_sample": PeriodWindow("out_of_sample", datetime(2021, 1, 1), datetime(2026, 1, 1)),
+    }
+)
+result = analyze_file(source, AnalysisConfig(sample_periods=periods))
+period_result = result.periods["out_of_sample"]
+```
+
+Use `suggest_sample_periods(source)` for conservative folder/filename
+suggestions. Suggestions require explicit caller confirmation and are never
+activated automatically. Sample periods use `[start, end)` boundaries and
+classify completed positions by `open_time`; cross-boundary closes are retained
+with a warning. `result.analyze_periods(periods, filters=...)` applies period
+classification before member-level trade filters. Use `ChartConfig(show_sample_periods=True)`
+with `save_equity_drawdown_chart()` for labelled in-sample, out-of-sample, and
+excluded bands.
 
 For multi-report work, use the typed portfolio seam rather than combining
 numbers in a custom script:
@@ -57,6 +85,15 @@ Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
 `PortfolioAnalysisResult`. Do not net member trades or
 silently combine reports with different currencies/timezones. Use
 `AnalysisStore.analyze_portfolio_or_load()` for cached portfolio retrieval.
+
+Set `sample_periods=` on each `PortfolioMember` to keep period definitions at
+the individual-report level. Compatible named periods are available through
+`result.periods`; differing member boundaries use their intersection and emit a
+warning. Daily realized-profit correlation is eager at
+`result.correlations.daily_profit`, with raw `series`, capital-scaled
+`allocated_series`, labelled `matrix`, observation count, and period-scoped
+results in `result.correlations.by_period`. Undefined correlation cells are
+`None` with diagnostics.
 
 For repeated report retrieval, use the package cache rather than writing a
 custom persistence script:
@@ -151,6 +188,15 @@ user-facing workflow must remain the package API.
 - Use explicit IANA/report timezone context for temporal filters and emit
   warnings when open times are missing/inferred or configuration conflicts with
   the report timezone.
+- Require both named `in_sample` and `out_of_sample` windows before activating
+  sample-period analysis; use conservative suggestions only after explicit
+  caller confirmation.
+- Classify sample periods by completed-position `open_time`, preserve
+  segment-relative opening capital, and warn on cross-boundary closes or trades
+  outside named windows.
+- Use broker/report timestamps for daily realized-profit correlation, align
+  strategy series over overlapping active dates, expose raw and allocated
+  series, and return `None` plus diagnostics for undefined cells.
 
 ### Verification
 

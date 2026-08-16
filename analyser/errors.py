@@ -45,3 +45,11 @@ class FilterError(ValueError):
 
 class FilterConfigurationError(FilterError):
     """A filter cannot be evaluated deterministically with the supplied context."""
+
+
+class SamplePeriodError(ValueError):
+    """Base class for invalid sample-period configurations."""
+
+
+class SamplePeriodConfigurationError(SamplePeriodError):
+    """A named sample-period configuration is incomplete or ambiguous."""

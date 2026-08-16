@@ -33,6 +33,11 @@ from .analysis import (
     analyze,
 )
 from .config import AnalysisConfig, SharpeConfig
+from .correlation import (
+    CorrelationResults,
+    DailyProfitCorrelationResult,
+    build_daily_profit_correlation,
+)
 from .diagnostics import Diagnostic, ValidationResult
 from .equity import CurveSeries
 from .filters import FilterConfig, TradeFilter
@@ -46,6 +51,7 @@ from .load import InputSource, load_report, read_input
 from .matrices import AnalysisMatrix
 from .metrics import Metrics, compute_metrics
 from .models import Report, Trade
+from .periods import PeriodWindow, SamplePeriodConfig
 from .serialization import deterministic_json, to_primitive
 
 _SUPPORTED_PRIMARY_CURVES = frozenset(("source_then_reconstructed", "source", "reconstructed"))
@@ -61,6 +67,7 @@ class PortfolioMember:
     source: InputSource | None = None
     filters: TradeFilter | None = None
     filter_config: FilterConfig | None = None
+    sample_periods: SamplePeriodConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.strategy_name.strip():
@@ -153,6 +160,64 @@ class PortfolioMemberResult:
 
 
 @dataclass(frozen=True)
+class PortfolioPeriodResult:
+    """Portfolio analytics for one effective named sample period."""
+
+    name: str
+    window: PeriodWindow
+    analysis: AnalysisResult
+    daily_profit_correlation: DailyProfitCorrelationResult
+    warnings: tuple[Diagnostic, ...] = ()
+
+    @property
+    def report(self) -> Report:
+        return self.analysis.report
+
+    @property
+    def metrics(self) -> Metrics:
+        return self.analysis.metrics
+
+    @property
+    def balance(self) -> CurveResult:
+        return self.analysis.balance
+
+    @property
+    def equity(self) -> CurveResult:
+        return self.analysis.equity
+
+    @property
+    def monthly(self) -> tuple[MonthlyPerformance, ...]:
+        return self.analysis.monthly
+
+    @property
+    def monthly_drawdown(self) -> tuple[MonthlyDrawdown, ...]:
+        return self.analysis.monthly_drawdown
+
+    @property
+    def monthly_performance(self) -> MonthlyPerformanceTable:
+        return self.analysis.monthly_performance
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "window": self.window.to_dict(),
+            "analysis": self.analysis.to_dict(),
+            "daily_profit_correlation": self.daily_profit_correlation.to_dict(),
+            "warnings": [warning.to_dict() for warning in self.warnings],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "PortfolioPeriodResult":
+        return cls(
+            name=payload["name"],
+            window=PeriodWindow.from_dict(payload["window"]),
+            analysis=AnalysisResult.from_dict(payload["analysis"]),
+            daily_profit_correlation=DailyProfitCorrelationResult.from_dict(payload["daily_profit_correlation"]),
+            warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
+        )
+
+
+@dataclass(frozen=True)
 class PortfolioAnalysisResult:
     """Complete aggregate portfolio result with member-level audit data."""
 
@@ -180,6 +245,8 @@ class PortfolioAnalysisResult:
     allocated_monthly_contribution_matrix: AnalysisMatrix
     correlation_matrix: AnalysisMatrix
     covariance_matrix: AnalysisMatrix
+    correlations: CorrelationResults
+    periods: dict[str, PortfolioPeriodResult]
     validation: ValidationResult
     warnings: tuple[Diagnostic, ...]
     provenance: dict[str, Any]
@@ -196,6 +263,14 @@ class PortfolioAnalysisResult:
     @property
     def portfolio_monthly_drawdown(self) -> tuple[MonthlyDrawdown, ...]:
         return self.monthly_drawdown
+
+    @property
+    def daily_profit_correlation(self) -> AnalysisMatrix:
+        return self.correlations.daily_profit.matrix
+
+    @property
+    def daily_profit_series(self):
+        return self.correlations.daily_profit.series
 
     def to_dict(self) -> dict[str, Any]:
         payload = to_primitive(self)
@@ -223,6 +298,7 @@ class PortfolioAnalysisResult:
             "allocated_monthly_contributions": self.allocated_monthly_contribution_matrix,
             "correlation": self.correlation_matrix,
             "covariance": self.covariance_matrix,
+            "daily_profit_correlation": self.correlations.daily_profit.matrix,
         }
         if section in matrix_map:
             return matrix_map[section].to_csv()
@@ -302,6 +378,7 @@ class PortfolioAnalysisResult:
                     weight=weights[member.member_key],
                     filters=member.analysis.filter_spec,
                     filter_config=member.analysis.filter_config,
+                    sample_periods=member.analysis.sample_period_config,
                 ),
                 analysis=member.analysis,
             )
@@ -333,6 +410,7 @@ class PortfolioAnalysisResult:
                         member.weight,
                         filters=member.analysis.filter_spec,
                         filter_config=member.analysis.filter_config,
+                        sample_periods=member.analysis.sample_period_config,
                     ),
                     analysis=member.analysis,
                 )
@@ -368,6 +446,20 @@ class PortfolioAnalysisResult:
                 sharpe=SharpeConfig(**sharpe_data),
             ),
         )
+        if payload.get("correlations"):
+            correlations = CorrelationResults.from_dict(payload["correlations"])
+        else:
+            daily_profit = build_daily_profit_correlation(
+                [
+                    (member.strategy_name, member.analysis.report.ordered_trades(), member.allocation_scale)
+                    for member in members
+                ],
+                scope="full_sample",
+                timezone=payload.get("timezone"),
+                minimum_observations=config.minimum_correlation_observations,
+                warning_observations=config.correlation_warning_observations,
+            )
+            correlations = CorrelationResults(daily_profit=daily_profit)
         return cls(
             members=members,
             portfolio_initial_capital=payload["portfolio_initial_capital"],
@@ -393,6 +485,11 @@ class PortfolioAnalysisResult:
             allocated_monthly_contribution_matrix=_matrix_from_dict(payload["allocated_monthly_contribution_matrix"]),
             correlation_matrix=_matrix_from_dict(payload["correlation_matrix"]),
             covariance_matrix=_matrix_from_dict(payload["covariance_matrix"]),
+            correlations=correlations,
+            periods={
+                name: PortfolioPeriodResult.from_dict(item)
+                for name, item in payload.get("periods", {}).items()
+            },
             validation=ValidationResult(**payload["validation"]),
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
             provenance=payload.get("provenance", {}),
@@ -461,7 +558,11 @@ def _analyze_member_bytes(
     key = hashlib.sha256(data).hexdigest()
     report = load_report(data)
     report.source_file = filename
-    result = analyze(report, analysis_config)
+    effective_config = replace(
+        analysis_config,
+        sample_periods=member.sample_periods or analysis_config.sample_periods,
+    )
+    result = analyze(report, effective_config)
     if member.filters is not None:
         result = result.apply_filters(member.filters, member.filter_config)
     return AnalyzedPortfolioMember(key, member, result)
@@ -692,6 +793,117 @@ def _correlation_matrices(
         AnalysisMatrix.from_array(names, names, correlation, "monthly_return_correlation"),
         AnalysisMatrix.from_array(names, names, covariance, "monthly_return_covariance"),
     )
+
+
+def _build_portfolio_periods(
+    member_results: Sequence[PortfolioMemberResult],
+    config: PortfolioConfig,
+    currency: str,
+    timezone: str | None,
+    portfolio_capital: float,
+    diagnostics: list[Diagnostic],
+) -> tuple[dict[str, PortfolioPeriodResult], dict[str, DailyProfitCorrelationResult]]:
+    """Combine compatible member periods using their effective intersection."""
+
+    member_period_maps = [member.analysis.periods for member in member_results]
+    if not any(member_period_maps):
+        return {}, {}
+    all_names = set().union(*(set(item) for item in member_period_maps))
+    common_names = set.intersection(*(set(item) for item in member_period_maps)) if member_period_maps else set()
+    for name in sorted(all_names - common_names):
+        diagnostics.append(Diagnostic(
+            "portfolio_sample_period_missing_member",
+            "A named sample period was not defined for every portfolio member",
+            context={"period": name},
+        ))
+
+    period_results: dict[str, PortfolioPeriodResult] = {}
+    correlations: dict[str, DailyProfitCorrelationResult] = {}
+    for name in sorted(common_names):
+        windows = [member.analysis.periods[name].window for member in member_results]
+        start = max(window.start for window in windows)
+        end = min(window.end for window in windows)
+        if any(window.start != windows[0].start or window.end != windows[0].end for window in windows[1:]):
+            diagnostics.append(Diagnostic(
+                "portfolio_sample_period_differs",
+                "Portfolio members do not share identical named sample-period boundaries; the intersection was used",
+                context={
+                    "period": name,
+                    "member_windows": [window.to_dict() for window in windows],
+                },
+            ))
+        if start >= end:
+            diagnostics.append(Diagnostic(
+                "portfolio_sample_period_no_overlap",
+                "A named portfolio sample period has no common date range",
+                context={"period": name},
+            ))
+            continue
+        effective_window = PeriodWindow(
+            name,
+            start,
+            end,
+            source="explicit",
+            evidence=("intersection of portfolio member windows",),
+        )
+        allocated_trades: list[Trade] = []
+        period_capitals: list[float] = []
+        period_members: list[tuple[str, Sequence[Trade], float]] = []
+        period_warnings: list[Diagnostic] = []
+        for member in member_results:
+            period = member.analysis.periods[name]
+            period_capitals.append(period.metrics.initial_deposit * member.allocation_scale)
+            period_warnings.extend(period.warnings)
+            period_members.append((member.strategy_name, period.analysis.report.trades, member.allocation_scale))
+            for trade in period.analysis.report.ordered_trades():
+                allocated_trades.append(replace(
+                    trade,
+                    profit=trade.profit * member.allocation_scale,
+                    swap=trade.swap * member.allocation_scale,
+                    commission=trade.commission * member.allocation_scale,
+                    strategy_id=member.member_key,
+                    source_report_hash=member.member_key,
+                    allocation_scale=member.allocation_scale,
+                ))
+        period_report = Report(
+            trades=allocated_trades,
+            initial_deposit=float(sum(period_capitals)),
+            currency=currency,
+            source_format="portfolio",
+            strategy_name=f"Portfolio {name}",
+            timezone=timezone,
+        )
+        period_analysis = analyze(
+            period_report,
+            replace(config.analysis_config, sample_periods=None),
+        )
+        daily = build_daily_profit_correlation(
+            period_members,
+            scope=name,
+            timezone=timezone,
+            minimum_observations=config.minimum_correlation_observations,
+            warning_observations=config.correlation_warning_observations,
+        )
+        period_warnings.extend(daily.warnings)
+        period_analysis = replace(
+            period_analysis,
+            warnings=tuple(list(period_analysis.warnings) + period_warnings),
+            provenance={
+                **period_analysis.provenance,
+                "sample_period": effective_window.to_dict(),
+                "sample_period_name": name,
+            },
+        )
+        period_results[name] = PortfolioPeriodResult(
+            name=name,
+            window=effective_window,
+            analysis=period_analysis,
+            daily_profit_correlation=daily,
+            warnings=tuple(period_warnings),
+        )
+        correlations[name] = daily
+        diagnostics.extend(period_warnings)
+    return period_results, correlations
 
 
 def _strict_or_warn(config: PortfolioConfig, diagnostics: list[Diagnostic]) -> None:
@@ -978,6 +1190,26 @@ def combine_analyses(
         config,
         metric_diagnostics,
     )
+    daily_profit = build_daily_profit_correlation(
+        [
+            (member.strategy_name, member.analysis.report.ordered_trades(), member.allocation_scale)
+            for member in member_results
+        ],
+        scope="full_sample",
+        timezone=timezone,
+        minimum_observations=config.minimum_correlation_observations,
+        warning_observations=config.correlation_warning_observations,
+    )
+    metric_diagnostics.extend(daily_profit.warnings)
+    portfolio_periods, period_correlations = _build_portfolio_periods(
+        member_results,
+        config,
+        currency,
+        timezone,
+        portfolio_capital,
+        metric_diagnostics,
+    )
+    correlations = CorrelationResults(daily_profit=daily_profit, by_period=period_correlations)
     validation_status = "warn" if metric_diagnostics else "match"
     validation = ValidationResult(
         status=validation_status,
@@ -1041,6 +1273,8 @@ def combine_analyses(
         allocated_monthly_contribution_matrix=allocated_contribution_matrix,
         correlation_matrix=correlation_matrix,
         covariance_matrix=covariance_matrix,
+        correlations=correlations,
+        periods=portfolio_periods,
         validation=validation,
         warnings=tuple(metric_diagnostics),
         provenance=provenance,
