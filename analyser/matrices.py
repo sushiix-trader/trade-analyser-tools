@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from .serialization import deterministic_json, to_primitive
+from .serialization import deterministic_json
 
 
 @dataclass(frozen=True)

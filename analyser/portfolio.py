@@ -29,7 +29,6 @@ from .analysis import (
     _monthly_performance_table,
     _report_from_dict,
     _curve_monthly,
-    _month_keys,
     analyze,
 )
 from .config import AnalysisConfig, SharpeConfig
@@ -979,7 +978,6 @@ def combine_analyses(
         raw_selected = selected
         allocated_selected = _scale_curve(selected, allocation)
         raw_reconstructed = reconstructed
-        allocated_reconstructed = _scale_curve(reconstructed, allocation)
         active_start, active_end = _active_bounds(raw_selected)
         if first_start is None:
             first_start, first_end = active_start, active_end

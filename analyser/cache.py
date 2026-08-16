@@ -13,13 +13,16 @@ import json
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from .analysis import AnalysisResult, analyze
 from .config import AnalysisConfig
 from .filters import AllOf, FilterConfig, TradeFilter, filter_fingerprint
 from .load import InputSource, load_report, read_input
 from .serialization import deterministic_json, to_primitive
+
+if TYPE_CHECKING:
+    from .portfolio import PortfolioAnalysisResult, PortfolioConfig, PortfolioMember
 
 PACKAGE_VERSION = "0.1.0"
 PARSER_VERSION = "2"

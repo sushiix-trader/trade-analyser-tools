@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from io import BufferedIOBase
 from pathlib import Path
 import hashlib
 from typing import BinaryIO

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .models import Report, Trade
@@ -78,14 +78,14 @@ def compare_reports(
     for index, (left_trade, right_trade) in enumerate(zip(left_trades, right_trades)):
         left_fields = _trade_fields(left_trade)
         right_fields = _trade_fields(right_trade)
-        for field, left_value in left_fields.items():
-            right_value = right_fields[field]
+        for field_name, left_value in left_fields.items():
+            right_value = right_fields[field_name]
             if isinstance(left_value, float) and isinstance(right_value, float):
                 same = abs(left_value - right_value) <= numeric_tolerance
             else:
                 same = left_value == right_value
             if not same:
-                mismatches.append(TradeMismatch(index, field, left_value, right_value))
+                mismatches.append(TradeMismatch(index, field_name, left_value, right_value))
                 if len(mismatches) >= max_mismatches:
                     break
         if len(mismatches) >= max_mismatches:

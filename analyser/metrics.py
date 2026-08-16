@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 import numpy as np

@@ -17,7 +17,6 @@ import numpy as np
 from .matrices import AnalysisMatrix
 
 
-
 @dataclass(frozen=True)
 class ChartConfig:
     """Deterministic visual options for equity/drawdown charts."""

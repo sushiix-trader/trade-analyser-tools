@@ -5,12 +5,11 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict, deque
-from typing import Any
 
 from ..diagnostics import Diagnostic, add_diagnostic
 from ..errors import UnsupportedReportError
-from ..models import AccountPoint, Report
-from ..parsing_utils import parse_datetime, parse_number
+from ..models import Report
+from ..parsing_utils import parse_number
 from .base import ReportParser, normalise_trade
 
 _TRADE_TAGS = {"position", "deal", "trade", "transaction"}
@@ -34,14 +33,6 @@ def _fields(element: ET.Element) -> dict[str, str]:
 def _looks_like_workbook(root: ET.Element, source: str) -> bool:
     tags = {_local(element.tag) for element in root.iter()}
     text = source.lower()
-    workbook_tokens = {
-        "optimization",
-        "optimizationresults",
-        "reportoptimizer",
-        "pass",
-        "result",
-        "profitfactor",
-    }
     # A single-run report must expose position/deal timing or explicit
     # position rows.  Optimization workbooks generally have pass/result rows.
     has_trades = bool(tags & {"position", "deal", "trade", "transaction"})

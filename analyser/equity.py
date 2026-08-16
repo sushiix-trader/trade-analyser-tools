@@ -8,7 +8,7 @@ from typing import Sequence
 
 import numpy as np
 
-from .models import AccountPoint, Report, Trade
+from .models import Report, Trade
 
 
 @dataclass(frozen=True)

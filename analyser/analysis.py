@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-from calendar import monthrange
 from dataclasses import dataclass, field, replace
 from collections import defaultdict
 from datetime import datetime
@@ -934,7 +933,6 @@ def _curve_monthly(
                 local_dd_pct = np.divide(local_dd, local_peak, out=np.zeros_like(local_dd), where=local_peak != 0)
             end_index = indices[-1]
             max_index = indices[int(np.argmax(global_dd_money[indices]))]
-            contained_index = indices[int(np.argmax(local_dd))]
             duration = None
             if local_dd.max(initial=0.0) > 0:
                 trough_offset = int(np.argmax(local_dd))
