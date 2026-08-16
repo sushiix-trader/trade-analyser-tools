@@ -20,16 +20,16 @@ from .filters import (
     FilterConfig,
     TradeFilter,
     TradeSelection,
-    filter_from_dict,
     filter_fingerprint,
-    select_trades,
+    filter_from_dict,
 )
 from .equity import CurveSeries, reconstructed_curve, source_balance_curve, source_equity_curve
 from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
 from .periods import PeriodWindow, SamplePeriodConfig
 from .models import Report, Trade
-from .what_if import WhatIfConfig, WhatIfResult, transform_report
+from .what_if import WhatIfConfig, WhatIfResult
+from .pipeline import PreparedView, TransformationPlan, prepare_analysis
 from .serialization import deterministic_json, to_primitive
 
 
@@ -291,132 +291,23 @@ class AnalysisResult:
     sample_period_config: SamplePeriodConfig | None = None
     periods: dict[str, PeriodAnalysisResult] = field(default_factory=dict)
 
-    def _apply_filter_after_periods(
-        self,
-        filter_spec: TradeFilter,
-        filter_config: FilterConfig | None = None,
-    ) -> "AnalysisResult":
-        """Filter a freshly classified period set without changing segment capital."""
-
+    def _rebuild(self, plan: TransformationPlan) -> "AnalysisResult":
         original = self.source_report or self.report
-        combined = (
-            AllOf(self.filter_spec, filter_spec)
-            if self.filter_spec is not None
-            else filter_spec
+        config = _analysis_config_from_provenance(self.provenance)
+        config = replace(
+            config,
+            sample_periods=plan.sample_periods,
+            what_if=plan.what_if,
         )
-        active_config = filter_config or self.filter_config or FilterConfig()
-        selected, selection, filter_diagnostics = select_trades(original, combined, active_config)
-        effective_timezone = original.timezone or active_config.report_timezone
-        filtered_report = replace(
-            original,
-            trades=selected,
-            timezone=effective_timezone,
-            source_balance_points=[],
-            source_equity_points=[],
-            reported_metrics={},
-            warnings=list(original.warnings),
-            metadata={
-                **original.metadata,
-                "filtered": True,
-                "filter_fingerprint": filter_fingerprint(combined, active_config),
-            },
-        )
-        config = replace(_analysis_config_from_provenance(self.provenance), sample_periods=None)
-        filtered = analyze(filtered_report, config)
-        fresh_periods = analyze(original, config).with_sample_periods(self.sample_period_config).periods
-        period_results: dict[str, PeriodAnalysisResult] = {}
-        for name, period in fresh_periods.items():
-            period_selected, period_selection, period_diagnostics = select_trades(
-                period.analysis.report,
-                combined,
-                active_config,
-            )
-            period_report = replace(
-                period.analysis.report,
-                trades=period_selected,
-                source_balance_points=[],
-                source_equity_points=[],
-                reported_metrics={},
-                warnings=[],
-            )
-            period_analysis = analyze(
-                period_report,
-                replace(config, what_if=None) if self.what_if is not None else config,
-            )
-            if self.what_if is not None:
-                period_analysis = replace(
-                    period_analysis,
-                    what_if=period.analysis.what_if,
-                    source_report=period.analysis.source_report,
-                    source_reported_metrics=period.analysis.source_reported_metrics,
-                    provenance={
-                        **period_analysis.provenance,
-                        "analysis_config": config.to_dict(),
-                        "what_if": self.what_if.to_dict(),
-                    },
-                )
-            period_warnings = list(period.warnings)
-            period_warnings.extend(period_diagnostics)
-            period_warnings.extend(period_analysis.warnings)
-            period_results[name] = PeriodAnalysisResult(
-                name=name,
-                window=period.window,
-                analysis=replace(period_analysis, warnings=tuple(period_warnings)),
-                source_trade_count=period.source_trade_count,
-                selected_trade_count=period_selection.selected_trade_count,
-                cross_boundary_trade_count=period.cross_boundary_trade_count,
-                excluded_trade_count=period.source_trade_count - period_selection.selected_trade_count,
-                warnings=tuple(period_warnings),
-            )
-        source_validation = self.provenance.get("source_validation") or self.validation.to_dict()
-        warnings = list(filtered.warnings)
-        warnings.extend(filter_diagnostics)
-        warnings.extend(
-            diagnostic for period in period_results.values() for diagnostic in period.warnings
-        )
-        warnings.append(Diagnostic(
-            "filtered_reported_metrics_not_applicable",
-            "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
-            context={"selected_trade_count": selection.selected_trade_count},
-        ))
-        source_report_sha256 = (
-            self.provenance.get("source_report_sha256")
-            or self.provenance.get("input_sha256")
-            or original.metadata.get("input_sha256")
-            or hashlib.sha256(deterministic_json(to_primitive(original)).encode("utf-8")).hexdigest()
-        )
-        provenance = dict(filtered.provenance)
-        provenance.update({
-            "filtered": True,
-            "filter_spec": combined.to_dict(),
-            "filter_config": active_config.to_dict(),
-            "filter_fingerprint": filter_fingerprint(combined, active_config),
-            "source_report_sha256": source_report_sha256,
-            "source_trade_count": selection.source_trade_count,
-            "selected_trade_count": selection.selected_trade_count,
-            "excluded_trade_count": selection.excluded_trade_count,
-            "source_validation": source_validation,
-            "sample_period_config": self.sample_period_config.to_dict(),
-            "sample_period_then_filter": True,
-        })
-        return replace(
-            filtered,
-            reported_metrics={},
-            validation=ValidationResult(
-                status="not_applicable",
-                checks={"source_validation": source_validation},
-                discrepancies=(),
-            ),
-            warnings=tuple(warnings),
-            provenance=provenance,
-            filter_spec=combined,
-            filter_config=active_config,
-            selection=selection,
-            source_report=original,
-            source_reported_metrics=dict(original.reported_metrics),
-            sample_period_config=self.sample_period_config,
-            periods=period_results,
-        )
+        return _analyze_with_plan(original, config, plan)
+
+    def _existing_what_if(self) -> WhatIfConfig | None:
+        if self.what_if is not None:
+            return self.what_if.config
+        return _analysis_config_from_provenance(self.provenance).what_if
+
+    def _source_validation(self) -> dict[str, Any] | None:
+        return self.provenance.get("source_validation") or self.validation.to_dict()
 
     def apply_filters(
         self,
@@ -425,218 +316,39 @@ class AnalysisResult:
     ) -> "AnalysisResult":
         """Return a filtered analysis evaluated from the original report.
 
-        Chained filters are combined against ``source_report`` rather than
-        repeatedly filtering an already-filtered result. Filtered analyses
-        always reconstruct equity from selected completed positions.
+        Chained filters, sample periods, and what-if sizing all use the same
+        internal transformation pipeline and are re-evaluated from the
+        untouched canonical report.
         """
 
         if not isinstance(filter_spec, TradeFilter):
             raise TypeError("filter_spec must be a TradeFilter")
-        if self.sample_period_config is not None:
-            return self._apply_filter_after_periods(filter_spec, filter_config)
-        original = self.source_report or self.report
         combined = (
             AllOf(self.filter_spec, filter_spec)
             if self.filter_spec is not None
             else filter_spec
         )
         active_config = filter_config or self.filter_config or FilterConfig()
-        selected, selection, filter_diagnostics = select_trades(original, combined, active_config)
-        effective_timezone = original.timezone or active_config.report_timezone
-        filtered_metadata = dict(original.metadata)
-        filtered_metadata.update({
-            "filtered": True,
-            "filter_fingerprint": filter_fingerprint(combined, active_config),
-            "selected_trade_count": selection.selected_trade_count,
-            "source_trade_count": selection.source_trade_count,
-        })
-        report_warnings = list(original.warnings)
-        report_warnings.extend(diagnostic.to_dict() for diagnostic in filter_diagnostics)
-        report_warnings.append({
-            "code": "filtered_source_curves_unavailable",
-            "message": "Filtered analysis uses reconstructed closed-position equity; source account curves were not filterable",
-            "severity": "warning",
-            "context": {},
-        })
-        filtered_report = replace(
-            original,
-            trades=selected,
-            timezone=effective_timezone,
-            source_balance_points=[],
-            source_equity_points=[],
-            reported_metrics={},
-            warnings=report_warnings,
-            metadata=filtered_metadata,
-        )
-        config = _analysis_config_from_provenance(self.provenance)
-        filtered = analyze(filtered_report, config=config)
-        filtered_curve_source = "filtered_reconstructed_closed_positions"
-        filtered_balance = replace(filtered.balance, source=filtered_curve_source) if filtered.balance is not None else None
-        filtered_equity = replace(filtered.equity, source=filtered_curve_source) if filtered.equity is not None else None
-        filtered_monthly_performance = replace(
-            filtered.monthly_performance,
-            source=filtered_curve_source,
-            basis="balance",
-        )
-        filtered = replace(
-            filtered,
-            balance=filtered_balance,
-            equity=filtered_equity,
-            monthly_performance=filtered_monthly_performance,
-        )
-        source_validation = self.provenance.get("source_validation") or self.validation.to_dict()
-        validation = ValidationResult(
-            status="not_applicable",
-            checks={"source_validation": source_validation},
-            discrepancies=(),
-        )
-        warnings = list(filtered.warnings)
-        warnings.append(Diagnostic(
-            "filtered_reported_metrics_not_applicable",
-            "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
-            context={"selected_trade_count": selection.selected_trade_count},
-        ))
-        provenance = dict(filtered.provenance)
-        source_report_sha256 = (
-            self.provenance.get("source_report_sha256")
-            or self.provenance.get("input_sha256")
-            or original.metadata.get("input_sha256")
-            or hashlib.sha256(deterministic_json(to_primitive(original)).encode("utf-8")).hexdigest()
-        )
-        provenance.update({
-            "filtered": True,
-            "filter_spec": combined.to_dict(),
-            "filter_config": active_config.to_dict(),
-            "filter_fingerprint": filter_fingerprint(combined, active_config),
-            "source_report_sha256": source_report_sha256,
-            "source_trade_count": selection.source_trade_count,
-            "selected_trade_count": selection.selected_trade_count,
-            "excluded_trade_count": selection.excluded_trade_count,
-            "source_validation": source_validation,
-        })
-        return replace(
-            filtered,
-            reported_metrics={},
-            validation=validation,
-            warnings=tuple(warnings),
-            provenance=provenance,
+        return self._rebuild(TransformationPlan(
+            sample_periods=self.sample_period_config,
             filter_spec=combined,
             filter_config=active_config,
-            selection=selection,
-            source_report=original,
-            source_reported_metrics=dict(original.reported_metrics),
-        )
-
-    @property
-    def daily_profit(self):
-        """Daily realized net-profit points for the canonical report trades."""
-        from .correlation import DailyProfitPoint
-
-        by_day: dict[Any, float] = {}
-        for trade in self.report.ordered_trades():
-            if trade.close_time is None:
-                continue
-            day = trade.close_time.date()
-            by_day[day] = by_day.get(day, 0.0) + float(trade.profit)
-        return tuple(DailyProfitPoint(day, by_day[day]) for day in sorted(by_day))
+            what_if=self._existing_what_if(),
+            source_validation=self._source_validation(),
+        ))
 
     def with_sample_periods(self, sample_periods: SamplePeriodConfig) -> "AnalysisResult":
         """Eagerly derive named period analyses from the original report."""
 
         if not isinstance(sample_periods, SamplePeriodConfig) or not sample_periods.enabled:
             raise ValueError("sample_periods must be an enabled SamplePeriodConfig")
-        original = self.report
-        source_curve = reconstructed_curve(original)
-        source_trade_count = len(original.trades)
-        diagnostics = list(self.warnings)
-        period_results: dict[str, PeriodAnalysisResult] = {}
-        assigned_keys: set[tuple[str, str, str]] = set()
-        base_config = _analysis_config_from_provenance(self.provenance)
-        base_config = replace(base_config, sample_periods=None)
-        for name, window in sample_periods.windows.items():
-            selected = [
-                trade for trade in original.ordered_trades()
-                if window.contains(trade.open_time)
-            ]
-            selected_keys = {
-                (trade.ticket, trade.position_id or "", trade.symbol)
-                for trade in selected
-            }
-            assigned_keys.update(selected_keys)
-            period_warnings: list[Diagnostic] = []
-            cross_boundary = 0
-            for trade in selected:
-                if trade.open_time_inferred:
-                    period_warnings.append(Diagnostic(
-                        "sample_period_inferred_open_time",
-                        "A sample-period trade used an inferred open time",
-                        context={"period": name, "ticket": trade.ticket},
-                    ))
-                if trade.close_time is None or not window.contains(trade.close_time):
-                    cross_boundary += 1
-                    period_warnings.append(Diagnostic(
-                        "sample_period_cross_boundary_trade",
-                        "A completed position opened in the period but closed outside its boundaries",
-                        context={
-                            "period": name,
-                            "ticket": trade.ticket,
-                            "open_time": trade.open_time.isoformat() if trade.open_time else None,
-                            "close_time": trade.close_time.isoformat() if trade.close_time else None,
-                        },
-                    ))
-            starting_balance = _balance_before(source_curve, window.start)
-            period_report = replace(
-                original,
-                trades=selected,
-                initial_deposit=starting_balance,
-                source_balance_points=[],
-                source_equity_points=[],
-                reported_metrics={},
-                warnings=[],
-                metadata={
-                    **original.metadata,
-                    "sample_period": name,
-                    "sample_period_start": window.start.isoformat(),
-                    "sample_period_end": window.end.isoformat(),
-                },
-            )
-            period_analysis = analyze(period_report, base_config)
-            period_warnings.extend(period_analysis.warnings)
-            period_analysis = replace(
-                period_analysis,
-                warnings=tuple(period_warnings),
-                provenance={
-                    **period_analysis.provenance,
-                    "sample_period": window.to_dict(),
-                    "sample_period_name": name,
-                },
-            )
-            period_results[name] = PeriodAnalysisResult(
-                name=name,
-                window=window,
-                analysis=period_analysis,
-                source_trade_count=source_trade_count,
-                selected_trade_count=len(selected),
-                cross_boundary_trade_count=cross_boundary,
-                excluded_trade_count=source_trade_count - len(selected),
-                warnings=tuple(period_warnings),
-            )
-        outside = source_trade_count - len(assigned_keys)
-        if outside:
-            diagnostics.append(Diagnostic(
-                "sample_period_trades_outside_windows",
-                "Some completed positions were outside all named sample periods",
-                context={"trade_count": outside},
-            ))
-        provenance = dict(self.provenance)
-        provenance["sample_period_config"] = sample_periods.to_dict()
-        return replace(
-            self,
-            sample_period_config=sample_periods,
-            periods=period_results,
-            warnings=tuple(diagnostics),
-            provenance=provenance,
-        )
+        return self._rebuild(TransformationPlan(
+            sample_periods=sample_periods,
+            filter_spec=self.filter_spec,
+            filter_config=self.filter_config or FilterConfig(),
+            what_if=self._existing_what_if(),
+            source_validation=self._source_validation() if self.filter_spec else None,
+        ))
 
     def analyze_periods(
         self,
@@ -647,75 +359,35 @@ class AnalysisResult:
     ) -> "AnalysisResult":
         """Apply sample-period classification before optional trade filtering."""
 
-        result = self.with_sample_periods(sample_periods)
         if filters is None:
-            return result
-        return result.apply_filters(filters, filter_config)
+            return self.with_sample_periods(sample_periods)
+        if not isinstance(filters, TradeFilter):
+            raise TypeError("filters must be a TradeFilter")
+        combined = (
+            AllOf(self.filter_spec, filters)
+            if self.filter_spec is not None
+            else filters
+        )
+        return self._rebuild(TransformationPlan(
+            sample_periods=sample_periods,
+            filter_spec=combined,
+            filter_config=filter_config or self.filter_config or FilterConfig(),
+            what_if=self._existing_what_if(),
+            source_validation=self._source_validation(),
+        ))
 
     def apply_what_if(self, config: WhatIfConfig) -> "AnalysisResult":
         """Return a fresh analysis re-sized from the original canonical report."""
 
         if not isinstance(config, WhatIfConfig):
             raise TypeError("config must be a WhatIfConfig")
-        original = self.source_report or self.report
-        base_report = original
-        selection = self.selection
-        filter_diagnostics: list[Diagnostic] = []
-        if self.filter_spec is not None:
-            selected, selection, filter_diagnostics = select_trades(
-                original, self.filter_spec, self.filter_config or FilterConfig()
-            )
-            base_report = replace(
-                original,
-                trades=selected,
-                source_balance_points=[],
-                source_equity_points=[],
-                reported_metrics={},
-                warnings=list(original.warnings),
-            )
-        analysis_config = _analysis_config_from_provenance(self.provenance)
-        analysis_config = replace(
-            analysis_config,
-            what_if=config,
+        return self._rebuild(TransformationPlan(
             sample_periods=self.sample_period_config,
-        )
-        transformed = analyze(base_report, analysis_config)
-        warnings = list(transformed.warnings)
-        warnings.extend(filter_diagnostics)
-        provenance = dict(transformed.provenance)
-        provenance.update({
-            "what_if": config.to_dict(),
-            "source_report_sha256": (
-                self.provenance.get("source_report_sha256")
-                or self.provenance.get("input_sha256")
-                or original.metadata.get("input_sha256")
-            ),
-        })
-        if self.filter_spec is not None:
-            warnings.append(Diagnostic(
-                "filtered_reported_metrics_not_applicable",
-                "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
-                context={"selected_trade_count": selection.selected_trade_count},
-            ))
-            transformed = replace(
-                transformed,
-                reported_metrics={},
-                validation=ValidationResult(
-                    status="not_applicable",
-                    checks={"source_validation": self.provenance.get("source_validation", self.validation.to_dict())},
-                    discrepancies=(),
-                ),
-            )
-        return replace(
-            transformed,
-            warnings=tuple(warnings),
-            provenance=provenance,
             filter_spec=self.filter_spec,
-            filter_config=self.filter_config,
-            selection=selection,
-            source_report=original,
-            source_reported_metrics=dict(original.reported_metrics),
-        )
+            filter_config=self.filter_config or FilterConfig(),
+            what_if=config,
+            source_validation=self._source_validation() if self.filter_spec else None,
+        ))
 
     def to_dict(self) -> dict[str, Any]:
         payload = to_primitive(self)
@@ -1059,27 +731,19 @@ def _analysis_config_from_provenance(provenance: dict[str, Any]) -> AnalysisConf
     return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data), sample_periods=sample_periods, what_if=what_if)
 
 
-def _balance_before(curve: CurveSeries, timestamp: datetime) -> float:
-    value = curve.initial_value
-    for point_time, point_value in zip(curve.timestamps, curve.values):
-        if point_time < timestamp:
-            value = float(point_value)
-        else:
-            break
-    return value
-
-
 def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
-    """Calculate the full analysis after any optional report transformation."""
+    """Calculate metrics and curves for one already-prepared report."""
 
-    sample_periods = config.sample_periods
-    base_config = replace(config, sample_periods=None)
     diagnostics = [Diagnostic(**warning) for warning in report.warnings]
     reconstructed = reconstructed_curve(report)
     source_equity = source_equity_curve(report)
     source_balance = source_balance_curve(report)
-    primary = source_equity if source_equity is not None and config.primary_curve == "source_then_reconstructed" else reconstructed
-    metrics = compute_metrics(report, primary_curve=primary, config=base_config, diagnostics=diagnostics)
+    primary = (
+        source_equity
+        if source_equity is not None and config.primary_curve == "source_then_reconstructed"
+        else reconstructed
+    )
+    metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
     monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
     validation = _validate(report, metrics)
@@ -1090,8 +754,7 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
             "warning",
             {"status": validation.status},
         ))
-    provenance = _provenance(report, config)
-    result = AnalysisResult(
+    return AnalysisResult(
         report=report,
         metrics=metrics,
         reported_metrics=dict(report.reported_metrics),
@@ -1105,31 +768,185 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         by_symbol=_by_symbol(report) if config.include_breakdowns else {},
         validation=validation,
         warnings=tuple(diagnostics),
-        provenance=provenance,
+        provenance=_provenance(report, config),
         sample_period_config=None,
         periods={},
     )
-    return result.with_sample_periods(sample_periods) if sample_periods is not None and sample_periods.enabled else result
+
+
+def _result_from_prepared_view(
+    view: PreparedView,
+    core_config: AnalysisConfig,
+    provenance_config: AnalysisConfig,
+    plan: TransformationPlan,
+    source_report: Report,
+) -> AnalysisResult:
+    result = _analyze_core(view.report, core_config)
+    warnings = list(result.warnings)
+    warnings.extend(view.diagnostics)
+    provenance = dict(result.provenance)
+    provenance["analysis_config"] = provenance_config.to_dict()
+
+    if view.what_if is not None:
+        provenance["what_if"] = view.what_if.to_dict()
+
+    if plan.filter_spec is not None and view.period_name is None:
+        source_validation = plan.source_validation or result.validation.to_dict()
+        warnings.append(Diagnostic(
+            "filtered_reported_metrics_not_applicable",
+            "MT5 reported metrics describe the unfiltered report and were not used for filtered validation",
+            context={
+                "selected_trade_count": (
+                    view.selection.selected_trade_count if view.selection is not None else 0
+                ),
+            },
+        ))
+        provenance.update({
+            "filtered": True,
+            "filter_spec": plan.filter_spec.to_dict(),
+            "filter_config": plan.filter_config.to_dict(),
+            "filter_fingerprint": filter_fingerprint(plan.filter_spec, plan.filter_config),
+            "source_report_sha256": (
+                source_report.metadata.get("input_sha256")
+                or source_report.metadata.get("source_report_sha256")
+                or hashlib.sha256(
+                    deterministic_json(to_primitive(source_report)).encode("utf-8")
+                ).hexdigest()
+            ),
+            "source_trade_count": (
+                view.selection.source_trade_count if view.selection is not None else 0
+            ),
+            "selected_trade_count": (
+                view.selection.selected_trade_count if view.selection is not None else 0
+            ),
+            "excluded_trade_count": (
+                view.selection.excluded_trade_count if view.selection is not None else 0
+            ),
+            "source_validation": source_validation,
+        })
+        result = replace(
+            result,
+            reported_metrics={},
+            validation=ValidationResult(
+                status="not_applicable",
+                checks={"source_validation": source_validation},
+                discrepancies=(),
+            ),
+        )
+        if not plan.sample_periods and view.period_name is None:
+            result = replace(
+                result,
+                balance=(
+                    replace(result.balance, source="filtered_reconstructed_closed_positions")
+                    if result.balance is not None else None
+                ),
+                equity=(
+                    replace(result.equity, source="filtered_reconstructed_closed_positions")
+                    if result.equity is not None else None
+                ),
+                monthly_performance=replace(
+                    result.monthly_performance,
+                    source="filtered_reconstructed_closed_positions",
+                    basis="balance",
+                ),
+            )
+
+    transformed = (
+        plan.what_if is not None
+        or (plan.filter_spec is not None and view.period_name is None)
+    )
+    expose_filter_selection = view.period_name is None
+    return replace(
+        result,
+        warnings=tuple(warnings),
+        provenance=provenance,
+        filter_spec=plan.filter_spec if expose_filter_selection else None,
+        filter_config=(
+            plan.filter_config
+            if plan.filter_spec is not None and expose_filter_selection
+            else None
+        ),
+        selection=view.selection if expose_filter_selection else None,
+        source_report=source_report if transformed else None,
+        source_reported_metrics=dict(source_report.reported_metrics) if transformed else None,
+        what_if=view.what_if,
+    )
+
+
+def _analyze_with_plan(
+    report: Report,
+    config: AnalysisConfig,
+    plan: TransformationPlan,
+) -> AnalysisResult:
+    prepared = prepare_analysis(report, plan)
+    core_config = replace(config, sample_periods=None, what_if=None)
+    result = _result_from_prepared_view(
+        prepared.full,
+        core_config,
+        config,
+        plan,
+        prepared.source_report,
+    )
+    if not plan.sample_periods or not plan.sample_periods.enabled:
+        return result
+
+    period_results: dict[str, PeriodAnalysisResult] = {}
+    period_provenance_config = replace(config, sample_periods=None)
+    for view in prepared.periods:
+        period_analysis = _result_from_prepared_view(
+            view,
+            core_config,
+            period_provenance_config,
+            plan,
+            prepared.source_report,
+        )
+        period_provenance = dict(period_analysis.provenance)
+        if not (plan.filter_spec is not None and view.period_name is not None):
+            period_provenance.update({
+                "sample_period": view.period_window.to_dict() if view.period_window else None,
+                "sample_period_name": view.period_name,
+            })
+        period_analysis = replace(period_analysis, provenance=period_provenance)
+        period_results[view.period_name or ""] = PeriodAnalysisResult(
+            name=view.period_name or "",
+            window=view.period_window,
+            analysis=period_analysis,
+            source_trade_count=view.source_trade_count,
+            selected_trade_count=(
+                view.selection.selected_trade_count
+                if view.selection is not None
+                else view.selected_trade_count
+            ),
+            cross_boundary_trade_count=view.cross_boundary_trade_count,
+            excluded_trade_count=(
+                view.selection.excluded_trade_count
+                if view.selection is not None
+                else view.excluded_trade_count
+            ),
+            warnings=period_analysis.warnings,
+        )
+    provenance = dict(result.provenance)
+    provenance["sample_period_config"] = plan.sample_periods.to_dict()
+    return replace(
+        result,
+        sample_period_config=plan.sample_periods,
+        periods=period_results,
+        warnings=tuple(list(result.warnings) + list(prepared.sample_period_warnings)),
+        provenance=provenance,
+    )
 
 
 def analyze(report: Report, config: AnalysisConfig | None = None) -> AnalysisResult:
-    """Eagerly calculate a full analysis, optionally applying what-if sizing."""
+    """Eagerly calculate a full analysis through the shared preparation pipeline."""
 
     config = config or AnalysisConfig()
-    if config.what_if is None:
-        return _analyze_core(report, config)
-    transformed_report, what_if = transform_report(report, config.what_if)
-    result = _analyze_core(transformed_report, replace(config, what_if=None))
-    provenance = dict(result.provenance)
-    provenance["analysis_config"] = config.to_dict()
-    provenance["what_if"] = what_if.to_dict()
-    return replace(
-        result,
-        warnings=tuple(list(result.warnings) + list(what_if.warnings)),
-        provenance=provenance,
-        source_report=report,
-        source_reported_metrics=dict(report.reported_metrics),
-        what_if=what_if,
+    return _analyze_with_plan(
+        report,
+        config,
+        TransformationPlan(
+            sample_periods=config.sample_periods,
+            what_if=config.what_if,
+        ),
     )
 
 
