@@ -28,6 +28,64 @@ class ChartConfig:
     excluded_color: str = "#9e9e9e"
 
 
+@dataclass(frozen=True)
+class MonteCarloPathInterval:
+    """A percentile interval to shade around simulated Monte Carlo paths."""
+
+    lower_percentile: float
+    upper_percentile: float
+    color: str = "#4f81bd"
+    alpha: float = 0.18
+    label: str | None = None
+
+    def validate(self) -> None:
+        if not 0.0 <= self.lower_percentile < self.upper_percentile <= 100.0:
+            raise ValueError(
+                "Monte Carlo interval percentiles must satisfy "
+                "0 <= lower < upper <= 100"
+            )
+        if not 0.0 < self.alpha <= 1.0:
+            raise ValueError("Monte Carlo interval alpha must be greater than 0 and at most 1")
+
+    @property
+    def display_label(self) -> str:
+        return self.label or (
+            f"{self.lower_percentile:g}–{self.upper_percentile:g}th percentile interval"
+        )
+
+
+@dataclass(frozen=True)
+class MonteCarloPathChartConfig:
+    """Visual options for a deterministic simulated-equity-path chart.
+
+    Percentile intervals are calculated across the retained paths at each
+    simulated trade step.  The widest interval is rendered first, so narrower
+    user-supplied intervals remain visible on top.
+    """
+
+    intervals: tuple[MonteCarloPathInterval, ...] = (
+        MonteCarloPathInterval(5.0, 95.0, color="#4f81bd", alpha=0.16),
+        MonteCarloPathInterval(25.0, 75.0, color="#1f77b4", alpha=0.24),
+    )
+    path_color: str = "#6b7280"
+    path_alpha: float = 0.08
+    path_linewidth: float = 0.45
+    median_color: str = "#111827"
+    median_linewidth: float = 1.4
+    show_drawdown: bool = True
+    show_streaks: bool = False
+
+    def validate(self) -> None:
+        if not self.intervals:
+            raise ValueError("at least one Monte Carlo path interval is required")
+        for interval in self.intervals:
+            interval.validate()
+        if not 0.0 < self.path_alpha <= 1.0:
+            raise ValueError("path_alpha must be greater than 0 and at most 1")
+        if self.path_linewidth <= 0.0 or self.median_linewidth <= 0.0:
+            raise ValueError("path line widths must be positive")
+
+
 def _matplotlib():
     try:
         import matplotlib
@@ -222,6 +280,243 @@ def save_equity_drawdown_chart(
     path.write_bytes(data)
     return path
 
+
+
+def _monte_carlo_paths(source: Any) -> np.ndarray:
+    paths = getattr(source, "equity_paths", None)
+    if paths is None:
+        paths = getattr(source, "paths", None)
+    if paths is None:
+        raise ValueError(
+            "Monte Carlo paths are not retained; run with "
+            "MonteCarloConfig(retain_paths=True)"
+        )
+    values = np.asarray(paths, dtype=float)
+    if values.ndim != 2 or values.shape[0] == 0 or values.shape[1] == 0:
+        raise ValueError(
+            "Monte Carlo paths are not retained; run with "
+            "MonteCarloConfig(retain_paths=True)"
+        )
+    if not np.isfinite(values).all():
+        raise ValueError("Monte Carlo paths must contain only finite values")
+    return values
+
+
+def _drawdown_paths(equity_paths: np.ndarray) -> np.ndarray:
+    peaks = np.maximum.accumulate(equity_paths, axis=1)
+    return equity_paths - peaks
+
+
+def _monte_carlo_streak_paths(source: Any) -> tuple[np.ndarray, np.ndarray]:
+    winning = getattr(source, "winning_streak_paths", None)
+    losing = getattr(source, "losing_streak_paths", None)
+    if winning is None or losing is None:
+        raise ValueError(
+            "Monte Carlo streak paths are not retained; run with "
+            "MonteCarloConfig(retain_paths=True)"
+        )
+    winning_values = np.asarray(winning, dtype=float)
+    losing_values = np.asarray(losing, dtype=float)
+    if (
+        winning_values.ndim != 2
+        or losing_values.ndim != 2
+        or winning_values.shape != losing_values.shape
+        or winning_values.shape[0] == 0
+        or winning_values.shape[1] == 0
+    ):
+        raise ValueError(
+            "Monte Carlo streak paths are not retained; run with "
+            "MonteCarloConfig(retain_paths=True)"
+        )
+    if not np.isfinite(winning_values).all() or not np.isfinite(losing_values).all():
+        raise ValueError("Monte Carlo streak paths must contain only finite values")
+    return winning_values, losing_values
+
+
+def _render_path_panel(
+    axis: Any,
+    paths: np.ndarray,
+    *,
+    chart_config: MonteCarloPathChartConfig,
+    ylabel: str,
+    title: str,
+) -> None:
+    x = np.arange(paths.shape[1])
+    # Paint bands from widest to narrowest, so the caller's intervals remain
+    # readable even when they overlap.
+    intervals = sorted(
+        chart_config.intervals,
+        key=lambda interval: interval.upper_percentile - interval.lower_percentile,
+        reverse=True,
+    )
+    for interval in intervals:
+        lower, upper = np.percentile(
+            paths,
+            [interval.lower_percentile, interval.upper_percentile],
+            axis=0,
+        )
+        axis.fill_between(
+            x,
+            lower,
+            upper,
+            color=interval.color,
+            alpha=interval.alpha,
+            linewidth=0,
+            label=interval.display_label,
+        )
+    for path in paths:
+        axis.plot(
+            x,
+            path,
+            color=chart_config.path_color,
+            alpha=chart_config.path_alpha,
+            linewidth=chart_config.path_linewidth,
+        )
+    median = np.percentile(paths, 50.0, axis=0)
+    axis.plot(
+        x,
+        median,
+        color=chart_config.median_color,
+        linewidth=chart_config.median_linewidth,
+        label="Median path",
+    )
+    axis.set_ylabel(ylabel)
+    axis.set_title(title, loc="left", fontsize=10)
+    axis.set_xlim(0, paths.shape[1] - 1)
+    axis.legend(loc="best", frameon=False, fontsize=8)
+
+
+def render_monte_carlo_paths(
+    result: Any,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+    chart_config: MonteCarloPathChartConfig | None = None,
+) -> bytes:
+    """Render retained Monte Carlo equity paths with configurable intervals.
+
+    Each retained simulated path is drawn as a faint line.  Each configured
+    percentile interval is calculated across paths at every simulated trade
+    step and shaded using its caller-supplied colour/opacity.  The lower panel
+    applies the same intervals to high-water-mark drawdown paths when
+    ``show_drawdown`` is enabled.  Monte Carlo paths are indexed by simulated
+    trade sequence rather than report timestamps because permutation and
+    bootstrap deliberately change trade order.
+    """
+
+    if image_format.lower() not in {"png", "svg"}:
+        raise ValueError("image_format must be 'png' or 'svg'")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+    chart_config = chart_config or MonteCarloPathChartConfig()
+    chart_config.validate()
+    equity_paths = _monte_carlo_paths(result)
+    drawdown_paths = _drawdown_paths(equity_paths)
+    method = getattr(getattr(result, "config", None), "method", "Monte Carlo")
+    iterations = getattr(result, "iterations", equity_paths.shape[0])
+    seed = getattr(getattr(result, "config", None), "seed", None)
+    currency = "account currency"
+    report = getattr(result, "report", None)
+    if report is not None:
+        currency = getattr(report, "currency", None) or currency
+    winning_streak_paths = losing_streak_paths = None
+    if chart_config.show_streaks:
+        winning_streak_paths, losing_streak_paths = _monte_carlo_streak_paths(result)
+    panel_count = 1 + int(chart_config.show_drawdown) + 2 * int(chart_config.show_streaks)
+
+    matplotlib, _, plt = _matplotlib()
+    with matplotlib.rc_context(
+        {
+            "figure.dpi": dpi,
+            "savefig.dpi": dpi,
+            "font.family": "DejaVu Sans",
+            "axes.grid": True,
+            "grid.alpha": 0.25,
+        }
+    ):
+        fig, axes = plt.subplots(
+            panel_count,
+            1,
+            figsize=(13, 5 + 2.4 * (panel_count - 1)),
+            sharex=True,
+            constrained_layout=True,
+            gridspec_kw={"height_ratios": (2.2,) + (1.0,) * (panel_count - 1)},
+        )
+        axes_array = np.atleast_1d(axes)
+        subtitle = f"{method.title()} | {iterations:,} iterations | {equity_paths.shape[0]:,} paths"
+        if seed is not None:
+            subtitle += f" | seed {seed}"
+        fig.suptitle(title or f"Monte Carlo simulated equity paths\n{subtitle}", fontsize=14, fontweight="bold")
+        _render_path_panel(
+            axes_array[0],
+            equity_paths,
+            chart_config=chart_config,
+            ylabel=f"Equity ({currency})",
+            title="Every retained simulated path with configured percentile intervals",
+        )
+        next_axis = 1
+        if chart_config.show_drawdown:
+            _render_path_panel(
+                axes_array[next_axis],
+                drawdown_paths,
+                chart_config=chart_config,
+                ylabel=f"Drawdown ({currency})",
+                title="High-water-mark drawdown paths",
+            )
+            axes_array[next_axis].axhline(0.0, color="#444444", linewidth=0.8)
+            next_axis += 1
+        if chart_config.show_streaks:
+            _render_path_panel(
+                axes_array[next_axis],
+                winning_streak_paths,
+                chart_config=chart_config,
+                ylabel="Winning streak (trades)",
+                title="Winning streak paths",
+            )
+            next_axis += 1
+            _render_path_panel(
+                axes_array[next_axis],
+                losing_streak_paths,
+                chart_config=chart_config,
+                ylabel="Losing streak (trades)",
+                title="Losing streak paths",
+            )
+        axes_array[-1].set_xlabel("Simulated trade sequence")
+        output = io.BytesIO()
+        fig.savefig(
+            output,
+            format=image_format.lower(),
+            dpi=dpi,
+            metadata={"Software": "trade-analyser-tools"},
+        )
+        plt.close(fig)
+    return output.getvalue()
+
+
+def save_monte_carlo_paths(
+    result: Any,
+    destination: str | Path,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+    chart_config: MonteCarloPathChartConfig | None = None,
+) -> Path:
+    """Render and save a Monte Carlo path chart, returning its path."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        render_monte_carlo_paths(
+            result,
+            title=title,
+            image_format=image_format,
+            dpi=dpi,
+            chart_config=chart_config,
+        )
+    )
+    return path
 
 
 def _correlation_source(source: Any) -> tuple[AnalysisMatrix, str, int | None]:

@@ -45,6 +45,10 @@ class MonteCarloConfig:
     optional stress test and defaults to zero.  For permutation runs, the
     retained trades are still shuffled.  For bootstrap runs, the retained
     count is the number of draws made with replacement.
+
+    Set ``retain_paths=True`` when a caller needs simulated equity paths for
+    visualisation.  ``path_count`` keeps a deterministic, evenly-spaced subset
+    of iterations in memory; when omitted, every iteration is retained.
     """
 
     iterations: int = 1_000
@@ -52,6 +56,8 @@ class MonteCarloConfig:
     skip_trades_pct: float = 0.0
     ruin_equity: float = 0.0
     seed: int = 0
+    retain_paths: bool = False
+    path_count: int | None = None
 
     def validate(self) -> None:
         if (
@@ -70,6 +76,19 @@ class MonteCarloConfig:
             raise ValueError("ruin_equity must be finite")
         if isinstance(self.seed, bool) or not isinstance(self.seed, (int, np.integer)):
             raise ValueError("seed must be an integer")
+        if not isinstance(self.retain_paths, bool):
+            raise ValueError("retain_paths must be a boolean")
+        if self.path_count is not None:
+            if (
+                isinstance(self.path_count, bool)
+                or not isinstance(self.path_count, (int, np.integer))
+                or self.path_count < 1
+            ):
+                raise ValueError("path_count must be an integer greater than zero")
+            if not self.retain_paths:
+                raise ValueError("path_count requires retain_paths=True")
+            if self.path_count > self.iterations:
+                raise ValueError("path_count cannot exceed iterations")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,11 +96,12 @@ class MonteCarloConfig:
 
 @dataclass(frozen=True)
 class MonteCarloResult:
-    """Simulation distributions and metadata.
+    """Simulation distributions, optional paths, and metadata.
 
     Array entries are aligned by iteration.  ``ruined`` is true when any point
     in that simulated balance path is at or below ``config.ruin_equity``; it is
-    not merely a test of the final balance.
+    not merely a test of the final balance.  Equity and streak path arrays are
+    populated only when ``MonteCarloConfig.retain_paths`` is enabled.
     """
 
     config: MonteCarloConfig
@@ -93,6 +113,17 @@ class MonteCarloResult:
     final_equities: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=float))
     max_consecutive_losses: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=int))
     ruined: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=bool))
+    path_indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=int))
+    equity_paths: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=float)
+    )
+    max_consecutive_wins: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=int))
+    winning_streak_paths: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=int)
+    )
+    losing_streak_paths: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=int)
+    )
 
     @property
     def iterations(self) -> int:
@@ -101,6 +132,18 @@ class MonteCarloResult:
     @property
     def probability_of_ruin_pct(self) -> float:
         return float(self.ruined.mean() * 100.0) if self.ruined.size else 0.0
+
+    @property
+    def paths(self) -> np.ndarray:
+        """Return retained simulated equity paths, indexed by retained path."""
+
+        return self.equity_paths
+
+    @property
+    def path_count(self) -> int:
+        """Return the number of retained paths available for visualisation."""
+
+        return int(self.equity_paths.shape[0]) if self.equity_paths.ndim == 2 else 0
 
     def percentile(self, values: np.ndarray, pct: float) -> float:
         """Return a percentile from one of the aligned result arrays."""
@@ -147,8 +190,10 @@ class MonteCarloResult:
             "max_drawdown_pct": self._distribution_summary(self.max_drawdown_pcts),
             "net_profit": self._distribution_summary(self.net_profits, worst_is="min"),
             "final_equity": self._distribution_summary(self.final_equities, worst_is="min"),
+            "max_consecutive_wins": self._distribution_summary(self.max_consecutive_wins),
             "max_consecutive_losses": self._distribution_summary(self.max_consecutive_losses),
             "probability_of_ruin_pct": self.probability_of_ruin_pct,
+            "path_count": self.path_count,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -160,8 +205,13 @@ class MonteCarloResult:
             "max_drawdown_pcts": self.max_drawdown_pcts.tolist(),
             "net_profits": self.net_profits.tolist(),
             "final_equities": self.final_equities.tolist(),
+            "max_consecutive_wins": self.max_consecutive_wins.tolist(),
             "max_consecutive_losses": self.max_consecutive_losses.tolist(),
             "ruined": self.ruined.tolist(),
+            "path_indices": self.path_indices.tolist(),
+            "equity_paths": self.equity_paths.tolist(),
+            "winning_streak_paths": self.winning_streak_paths.tolist(),
+            "losing_streak_paths": self.losing_streak_paths.tolist(),
         }
 
     def to_json(self) -> str:
@@ -179,15 +229,41 @@ def _max_drawdown(equity: np.ndarray) -> tuple[float, float]:
     return drawdown_money, float(drawdown_pct)
 
 
-def _max_consecutive_losses(profits: np.ndarray) -> int:
-    longest = run = 0
-    for profit in profits:
-        if profit < 0:
-            run += 1
-            longest = max(longest, run)
+def _streak_statistics(
+    profits: np.ndarray,
+) -> tuple[int, int, np.ndarray, np.ndarray]:
+    """Return max win/loss streaks and current-streak paths.
+
+    Positive net profits extend a winning streak, negative net profits extend a
+    losing streak, and zero-profit trades reset both streaks.  The path arrays
+    include the initial zero-streak observation before the first simulated
+    trade.
+    """
+
+    winning_path = np.zeros(profits.size + 1, dtype=int)
+    losing_path = np.zeros(profits.size + 1, dtype=int)
+    current_wins = current_losses = 0
+    max_wins = max_losses = 0
+    for index, profit in enumerate(profits, start=1):
+        if profit > 0:
+            current_wins += 1
+            current_losses = 0
+        elif profit < 0:
+            current_losses += 1
+            current_wins = 0
         else:
-            run = 0
-    return longest
+            current_wins = current_losses = 0
+        max_wins = max(max_wins, current_wins)
+        max_losses = max(max_losses, current_losses)
+        winning_path[index] = current_wins
+        losing_path[index] = current_losses
+    return max_wins, max_losses, winning_path, losing_path
+
+
+def _max_consecutive_losses(profits: np.ndarray) -> int:
+    """Backward-compatible private helper for the existing loss metric."""
+
+    return _streak_statistics(profits)[1]
 
 
 def _sample_profits(
@@ -253,8 +329,34 @@ def run_monte_carlo(
     max_drawdown_pcts = np.empty(config.iterations, dtype=float)
     net_profits = np.empty(config.iterations, dtype=float)
     final_equities = np.empty(config.iterations, dtype=float)
+    max_consecutive_wins = np.empty(config.iterations, dtype=int)
     max_consecutive_losses = np.empty(config.iterations, dtype=int)
     ruined = np.empty(config.iterations, dtype=bool)
+
+    retained_path_count = (
+        config.path_count if config.path_count is not None else config.iterations
+    ) if config.retain_paths else 0
+    path_indices = (
+        np.linspace(0, config.iterations - 1, retained_path_count, dtype=int)
+        if retained_path_count
+        else np.empty(0, dtype=int)
+    )
+    path_lookup = {int(iteration): position for position, iteration in enumerate(path_indices)}
+    equity_paths = (
+        np.empty((retained_path_count, sample_size + 1), dtype=float)
+        if retained_path_count
+        else np.empty((0, 0), dtype=float)
+    )
+    winning_streak_paths = (
+        np.empty((retained_path_count, sample_size + 1), dtype=int)
+        if retained_path_count
+        else np.empty((0, 0), dtype=int)
+    )
+    losing_streak_paths = (
+        np.empty((retained_path_count, sample_size + 1), dtype=int)
+        if retained_path_count
+        else np.empty((0, 0), dtype=int)
+    )
 
     for index in range(config.iterations):
         sample = _sample_profits(
@@ -267,8 +369,18 @@ def run_monte_carlo(
         max_drawdowns[index], max_drawdown_pcts[index] = _max_drawdown(curve.equity)
         net_profits[index] = curve.net_profit
         final_equities[index] = curve.final_balance
-        max_consecutive_losses[index] = _max_consecutive_losses(sample)
+        (
+            max_consecutive_wins[index],
+            max_consecutive_losses[index],
+            winning_streak_path,
+            losing_streak_path,
+        ) = _streak_statistics(sample)
         ruined[index] = bool(np.any(curve.equity <= config.ruin_equity))
+        path_position = path_lookup.get(index)
+        if path_position is not None:
+            equity_paths[path_position] = curve.equity
+            winning_streak_paths[path_position] = winning_streak_path
+            losing_streak_paths[path_position] = losing_streak_path
 
     return MonteCarloResult(
         config=config,
@@ -278,8 +390,13 @@ def run_monte_carlo(
         max_drawdown_pcts=max_drawdown_pcts,
         net_profits=net_profits,
         final_equities=final_equities,
+        max_consecutive_wins=max_consecutive_wins,
         max_consecutive_losses=max_consecutive_losses,
         ruined=ruined,
+        path_indices=path_indices,
+        equity_paths=equity_paths,
+        winning_streak_paths=winning_streak_paths,
+        losing_streak_paths=losing_streak_paths,
     )
 
 

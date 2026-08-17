@@ -25,10 +25,14 @@ from .analysis import (
 from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
 from .charts import (
     ChartConfig,
+    MonteCarloPathChartConfig,
+    MonteCarloPathInterval,
     render_correlation_heatmap,
     render_equity_drawdown_chart,
+    render_monte_carlo_paths,
     save_correlation_heatmap,
     save_equity_drawdown_chart,
+    save_monte_carlo_paths,
 )
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .correlation import CorrelationResults, DailyProfitCorrelationResult, DailyProfitPoint
@@ -96,6 +100,8 @@ __all__ = [
     "AnalysisStore",
     "render_equity_drawdown_chart",
     "save_equity_drawdown_chart",
+    "render_monte_carlo_paths",
+    "save_monte_carlo_paths",
     "render_correlation_heatmap",
     "save_correlation_heatmap",
     "AnalysisConfig",
@@ -104,6 +110,8 @@ __all__ = [
     "WhatIfConfig",
     "WhatIfResult",
     "ChartConfig",
+    "MonteCarloPathChartConfig",
+    "MonteCarloPathInterval",
     "AnalysisMatrix",
     "AnalysisResult",
     "PeriodAnalysisResult",

@@ -267,6 +267,18 @@ the historical trade set and changes order; bootstrap is an explicit
 alternative. Fixed configuration and seed must produce identical results.
 Use `summary()`, aligned result arrays, and `to_json()`.
 
+For a simulated-path visual rather than a histogram, set
+`MonteCarloConfig(retain_paths=True, path_count=...)` and use
+`save_monte_carlo_paths()` with `MonteCarloPathChartConfig` and one or more
+`MonteCarloPathInterval` values. Each retained path is drawn, and configured
+percentile bands are calculated at each simulated trade step for both equity and
+high-water-mark drawdown. `path_count` is a deterministic evenly-spaced subset
+of iterations; it bounds memory and rendering cost. Set `show_streaks=True`
+to add winning- and losing-streak panels using the same bands. The simulation
+result exposes max consecutive win/loss arrays and retained current-streak
+paths. Streaks use completed-position net profit: positive extends wins,
+negative extends losses, and zero resets both.
+
 ## Contract guardrails
 
 - Accept MT5 single-run HTML/HTM and XML reports, paths, bytes, and file-like

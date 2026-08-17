@@ -189,6 +189,49 @@ method preserves every historical trade and changes only its order; bootstrap
 sampling is an explicit alternative. Results are deterministic for a fixed
 configuration and expose `summary()`, aligned result arrays, and `to_json()`.
 
+For path visuals, opt into deterministic path retention and use the chart API;
+do not reimplement randomisation or equity-path construction in a custom script:
+
+```python
+from analyser import (
+    MonteCarloConfig,
+    MonteCarloPathChartConfig,
+    MonteCarloPathInterval,
+    run_monte_carlo_file,
+    save_monte_carlo_paths,
+)
+
+simulation = run_monte_carlo_file(
+    source,
+    MonteCarloConfig(
+        iterations=10_000,
+        method="permutation",
+        seed=42,
+        retain_paths=True,
+        path_count=500,
+    ),
+)
+save_monte_carlo_paths(
+    simulation,
+    destination,
+    chart_config=MonteCarloPathChartConfig(
+        intervals=(
+            MonteCarloPathInterval(5, 95),
+            MonteCarloPathInterval(25, 75),
+        )
+    ),
+)
+```
+
+`path_count` retains an evenly-spaced subset of simulated iterations to keep
+memory and rendering bounded. Intervals are caller-configurable percentile
+bands calculated across retained paths at each simulated trade step. Set
+`show_streaks=True` to render winning- and losing-streak paths with the same
+bands. The result exposes `max_consecutive_wins`,
+`max_consecutive_losses`, `winning_streak_paths`, and
+`losing_streak_paths`; positive net profit extends a win streak, negative net
+profit extends a loss streak, and zero resets both.
+
 ### Implementation rule
 
 When a user asks for trading-report or metric analysis, extend or call the
