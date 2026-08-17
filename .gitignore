@@ -16,3 +16,7 @@ htmlcov/
 # Local report fixtures and manifests must never be committed.
 data/mt5_reports/*
 !data/mt5_reports/README.md
+# Local credentials and environment files.
+.env
+.env.*
+!.env.example
