@@ -1,8 +1,4 @@
-# Systematic Strategy Analyzer
-
-![Systematic Strategy Analyzer](assets/systematic-strategy-analyzer.png)
-
-**Systematic Strategy Analyzer.**
+![Strategy Analyser v1](assets/strategy-analyser-banner.png)
 
 **Agent-native API to analyse and construct portfolios of MT5 strategies and backtests.**
 
@@ -15,6 +11,9 @@
 A fast, deterministic Python library for analysing MetaTrader 5 Strategy Tester
 reports. It is an analysis platform only: there is no live execution, order
 placement, or GUI in the current release.
+
+**Agent-native API. No need to write code yourself: describe or ask your questions
+in Claude, Codex, or another capable agent, and it can calculate them for you.**
 
 I got tired of having to manually use QuantAnalyzer because Codex could not use
 it automatically. So instead, I found the features I liked and implemented my
