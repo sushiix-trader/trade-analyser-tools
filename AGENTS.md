@@ -6,6 +6,15 @@ For natural-language questions about what this platform can do or how to use it,
 read `.agents/skills/mt5-report-analysis/SKILL.md` before acting. It maps
 common report-analysis questions to the canonical typed `analyser` API.
 
+## Clarification gate
+
+Before taking any action on a request in this repository, check whether any
+required detail is missing, ambiguous, contradictory, or subject to user
+choice. If clarification is needed, stop and ask the user explicitly before
+using tools, reading or writing files, calculating results, choosing defaults,
+or proceeding. Do not infer or silently select a fallback; continue only after
+the user answers.
+
 ## Trading-report work
 
 Use the `analyser` package as the canonical trading-report interface.

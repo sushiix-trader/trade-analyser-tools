@@ -10,6 +10,15 @@ trading-report work. Translate natural-language requests into its typed API;
 do not write a one-off parsing, metric, portfolio, chart, or simulation script.
 Keep the workflow deterministic, eager, reproducible, and analysis-only.
 
+## Clarification gate
+
+Before taking any action, inspect the request for missing, ambiguous,
+contradictory, or user-selectable information. If anything needs
+clarification, stop and ask the user explicitly before reading or writing
+files, calling tools, calculating results, choosing defaults, or proceeding
+in any other way. Do not infer an answer or silently choose a fallback.
+Resume only after the user supplies the clarification.
+
 ## Default workflow
 
 1. Identify the operation: one report, report comparison, filtered report,

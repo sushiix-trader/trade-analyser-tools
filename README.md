@@ -74,6 +74,41 @@ Text and table examples:
 - [Daily profit correlation table](results/daily-profit-correlation.csv)
 - [Monte Carlo p5/p50/p95 summary](results/monte-carlo-summary.md)
 
+### Example: returns broken down by month
+
+The eager `monthly_performance` result exposes a year-by-month return matrix.
+Values are percentages and `YTD` is compounded from the active months in that
+calendar year. The following uses only the public API and formats the result as
+a readable table:
+
+```python
+from analyser import AnalysisConfig, analyze_file
+
+result = analyze_file("tester_report.htm", AnalysisConfig())
+table = result.monthly_performance
+
+def display(value):
+    return "—" if value is None else f"{value:.2f}%"
+
+headers = ("Year", *table.month_labels, "YTD")
+print("| " + " | ".join(headers) + " |")
+print("| " + " | ".join(["---:"] * len(headers)) + " |")
+for row in table.rows:
+    values = [display(value) for value in row.monthly_returns_pct]
+    print("| " + " | ".join((str(row.year), *values, display(row.ytd_return_pct))) + " |")
+```
+
+Example output:
+
+```text
+| Year | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec | YTD |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2021 | -0.10% | -0.09% | 0.21% | -0.13% | 0.05% | -0.10% | 0.15% | 0.06% | 0.23% | -0.03% | -0.03% | -0.03% | 0.17% |
+| 2022 | -0.09% | 0.21% | 0.07% | -0.00% | -0.17% | -0.10% | -0.02% | 0.05% | -0.02% | 0.03% | 0.05% | 0.11% | 0.12% |
+| 2023 | 0.05% | -0.23% | 0.04% | -0.06% | 0.15% | 0.32% | 0.01% | 0.13% | -0.03% | 0.25% | -0.03% | 0.24% | 0.85% |
+| 2024 | 0.15% | 0.09% | 0.06% | -0.09% | — | — | — | — | — | — | — | — | 0.21% |
+```
+
 Visual examples:
 
 [![Equity and drawdown](results/equity-drawdown.png)](results/equity-drawdown.png)
