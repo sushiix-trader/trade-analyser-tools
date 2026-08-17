@@ -51,6 +51,17 @@ For requests such as:
 Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
 `result.monthly_performance`, `result.balance`, `result.equity`,
 `result.validation`, `result.warnings`, and `result.provenance`.
+
+For Sharpe questions, keep the definitions separate:
+- `result.metrics.custom_trade_event_sharpe` is the unannualized closed-trade
+  event Sharpe.
+- `result.metrics.daily_sharpe_ratio` is the daily Sharpe from reconstructed
+  calendar end-of-day equity, retaining flat no-trade days.
+- `result.metrics.annualized_daily_sharpe_ratio` applies the configured daily
+  annualization factor, which defaults to `365.2425` for calendar-day data.
+- Configure `SharpeConfig(daily_risk_free_rate=...,
+  daily_annualization_factor=...)` when a different daily risk-free rate or
+  annualization convention is required.
 QuantAnalyzer-style fields are exposed on `result.metrics`, including returns,
 drawdowns, return/drawdown ratios, win/loss and payout ratios, gross/average/
 largest trade values, streaks, AHPR, daily/monthly/yearly averages,

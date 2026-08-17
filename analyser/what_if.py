@@ -14,12 +14,18 @@ from .serialization import to_primitive
 
 @dataclass(frozen=True)
 class InstrumentSpec:
-    """Static monetary tick metadata used by risk-based what-if sizing.
+    """Monetary tick metadata used by risk-based what-if sizing.
 
-    ``tick_value`` is the account/report-currency value of one ``tick_size``
-    movement for one lot.  The spec is intentionally static and must be
-    supplied per report when the source report does not provide equivalent
-    metadata.
+    ``tick_value`` is the value, in ``account_currency``, of one
+    ``tick_size`` movement for one lot.  MT5 reports do not reliably carry
+    the symbol contract metadata needed for this conversion, so the caller
+    must provide it explicitly.
+
+    ``tick_value_basis`` records how the value was obtained.  A
+    ``historical_average`` basis is deterministic but approximate: it uses a
+    fixed average conversion instead of the trade-date conversion.  That
+    approximation is surfaced as a warning in the what-if result and its
+    provenance.
     """
 
     symbol: str
@@ -28,6 +34,13 @@ class InstrumentSpec:
     account_currency: str | None = None
     contract_size: float | None = None
     quote_currency: str | None = None
+    tick_value_basis: str = "broker_snapshot"
+    tick_value_source: str | None = None
+    tick_value_reference_period: str | None = None
+
+    BROKER_SNAPSHOT = "broker_snapshot"
+    HISTORICAL_AVERAGE = "historical_average"
+    TICK_VALUE_BASES = frozenset((BROKER_SNAPSHOT, HISTORICAL_AVERAGE))
 
     def validate(self, report_currency: str | None = None) -> None:
         if not self.symbol.strip():
@@ -40,11 +53,27 @@ class InstrumentSpec:
             not math.isfinite(float(self.contract_size)) or self.contract_size <= 0
         ):
             raise WhatIfConfigurationError("instrument contract_size must be positive and finite")
+        if self.tick_value_basis not in self.TICK_VALUE_BASES:
+            raise WhatIfConfigurationError(
+                f"instrument tick_value_basis must be one of {sorted(self.TICK_VALUE_BASES)}"
+            )
+        if self.tick_value_basis == self.HISTORICAL_AVERAGE and not self.tick_value_source:
+            raise WhatIfConfigurationError(
+                "historical-average tick values require tick_value_source"
+            )
+        if self.tick_value_basis == self.HISTORICAL_AVERAGE and not self.tick_value_reference_period:
+            raise WhatIfConfigurationError(
+                "historical-average tick values require tick_value_reference_period"
+            )
         if report_currency and self.account_currency:
             if self.account_currency.strip().upper() != report_currency.strip().upper():
                 raise WhatIfConfigurationError(
                     "instrument account_currency must match the report currency"
                 )
+
+    @property
+    def uses_approximate_conversion(self) -> bool:
+        return self.tick_value_basis == self.HISTORICAL_AVERAGE
 
     def to_dict(self) -> dict[str, Any]:
         return to_primitive(self)
@@ -279,6 +308,33 @@ def _excluded_audit(
     return audit, diagnostic
 
 
+def _instrument_diagnostics(
+    report: Report,
+    config: WhatIfConfig,
+) -> list[Diagnostic]:
+    if config.mode not in {WhatIfConfig.PERCENT_RISK, WhatIfConfig.DOLLAR_RISK}:
+        return []
+    spec = config.instrument_spec
+    if spec is None or not spec.uses_approximate_conversion:
+        return []
+    return [Diagnostic(
+        "what_if_historical_average_tick_value",
+        (
+            "Risk-based what-if sizing uses a fixed historical-average USD "
+            "tick value rather than trade-date conversion; resized results "
+            "are approximate for this instrument"
+        ),
+        context={
+            "symbol": spec.symbol,
+            "account_currency": spec.account_currency or report.currency,
+            "tick_value": spec.tick_value,
+            "tick_value_basis": spec.tick_value_basis,
+            "tick_value_source": spec.tick_value_source,
+            "tick_value_reference_period": spec.tick_value_reference_period,
+        },
+    )]
+
+
 def transform_report(report: Report, config: WhatIfConfig) -> tuple[Report, WhatIfResult]:
     """Transform completed positions and return a fresh report plus audit data."""
 
@@ -302,7 +358,7 @@ def transform_report(report: Report, config: WhatIfConfig) -> tuple[Report, What
     )
     transformed: list[Trade] = []
     audits: list[SizingAudit] = []
-    diagnostics: list[Diagnostic] = []
+    diagnostics: list[Diagnostic] = _instrument_diagnostics(report, config)
     for trade in report.ordered_trades():
         if trade.volume <= 0 or not math.isfinite(float(trade.volume)):
             raise WhatIfError(f"trade {trade.ticket} has invalid original volume")

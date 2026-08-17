@@ -18,7 +18,7 @@ from analyser import (
     analyze_portfolio,
     render_correlation_heatmap,
 )
-from analyser.errors import WhatIfError
+from analyser.errors import WhatIfConfigurationError, WhatIfError
 from analyser.models import Report, Trade, TradeSide
 
 
@@ -117,6 +117,54 @@ class WhatIfTests(unittest.TestCase):
         self.assertEqual(trade.profit, 10.0)
         self.assertEqual(result.what_if.audits[0].risk_source, "explicit_stop")
         self.assertAlmostEqual(result.what_if.audits[0].calculated_risk_amount, 100.0)
+
+    def test_historical_average_tick_value_is_explicitly_warned_and_serialized(self) -> None:
+        average_spec = InstrumentSpec(
+            symbol="TEST_SYMBOL",
+            tick_size=0.0001,
+            tick_value=10.0,
+            account_currency="USD",
+            tick_value_basis=InstrumentSpec.HISTORICAL_AVERAGE,
+            tick_value_source="Example annual USD conversion averages",
+            tick_value_reference_period="2023-01-01/2026-01-01",
+        )
+        result = analyze(
+            make_report(make_trade("average", 200.0, volume=2.0)),
+            AnalysisConfig(
+                what_if=WhatIfConfig.percent_risk(
+                    1.0,
+                    initial_capital=10_000.0,
+                    instrument_spec=average_spec,
+                )
+            ),
+        )
+
+        self.assertIn(
+            "what_if_historical_average_tick_value",
+            [warning.code for warning in result.warnings],
+        )
+        payload = result.what_if.to_dict()
+        self.assertEqual(
+            payload["config"]["instrument_spec"]["tick_value_basis"],
+            "historical_average",
+        )
+        self.assertEqual(
+            payload["config"]["instrument_spec"]["tick_value_reference_period"],
+            "2023-01-01/2026-01-01",
+        )
+
+    def test_historical_average_tick_value_requires_provenance(self) -> None:
+        with self.assertRaises(WhatIfConfigurationError):
+            WhatIfConfig.percent_risk(
+                1.0,
+                instrument_spec=InstrumentSpec(
+                    symbol="TEST_SYMBOL",
+                    tick_size=0.0001,
+                    tick_value=10.0,
+                    account_currency="USD",
+                    tick_value_basis=InstrumentSpec.HISTORICAL_AVERAGE,
+                ),
+            )
 
     def test_missing_stop_is_excluded_and_warned_but_other_trades_continue(self) -> None:
         result = analyze(

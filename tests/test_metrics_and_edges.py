@@ -101,6 +101,33 @@ class MetricEdgeTests(unittest.TestCase):
         self.assertNotEqual(base.metrics.custom_trade_event_sharpe, annualized.metrics.custom_trade_event_sharpe)
         self.assertEqual(base.to_json(), analyze(report).to_json())
 
+    def test_daily_and_annualized_daily_sharpe_use_calendar_end_of_day_returns(self) -> None:
+        report = Report(
+            initial_deposit=1000.0,
+            trades=[
+                trade("1", datetime(2024, 1, 2), 100.0),
+                trade("2", datetime(2024, 1, 4), -50.0),
+            ],
+        )
+        result = analyze(report)
+
+        # Jan 1: initial flat day, Jan 2: +10%, Jan 3: flat,
+        # Jan 4: -50 / 1100.
+        expected_returns = [0.0, 0.10, 0.0, -50.0 / 1100.0]
+        expected_daily = sum(expected_returns) / 4.0
+        expected_std = (
+            sum((value - expected_daily) ** 2 for value in expected_returns) / 4.0
+        ) ** 0.5
+        expected_daily_sharpe = expected_daily / expected_std
+
+        self.assertEqual(result.metrics.daily_sharpe_observations, 4)
+        self.assertAlmostEqual(result.metrics.daily_sharpe_ratio, expected_daily_sharpe)
+        self.assertAlmostEqual(
+            result.metrics.annualized_daily_sharpe_ratio,
+            expected_daily_sharpe * (365.2425 ** 0.5),
+        )
+        self.assertEqual(result.metrics.daily_sharpe_annualization_factor, 365.2425)
+
     def test_quant_analyzer_style_monthly_table_compounds_ytd(self) -> None:
         report = Report(
             initial_deposit=1000.0,

@@ -320,6 +320,10 @@ class Metrics:
 
     custom_trade_event_sharpe: float | None = None
     sharpe_ratio: float | None = None
+    daily_sharpe_ratio: float | None = None
+    annualized_daily_sharpe_ratio: float | None = None
+    daily_sharpe_observations: int = 0
+    daily_sharpe_annualization_factor: float | None = None
     sortino_ratio: float | None = None
     std_deviation: float | None = None
     recovery_factor: float | None = None
@@ -519,6 +523,43 @@ def compute_metrics(
     daily = _period_stats(curve, "day")
     monthly = _period_stats(curve, "month")
     annual = _period_stats(curve, "year")
+
+    # Daily Sharpe is intentionally separate from the custom trade-event
+    # Sharpe above.  We use end-of-calendar-day reconstructed equity, retain
+    # flat no-trade days between the first and last observation, and apply a
+    # configurable daily risk-free rate and annualization factor.
+    daily_returns = np.asarray(
+        [period_return for _, _, period_return, _ in daily if period_return is not None],
+        dtype=float,
+    )
+    result["daily_sharpe_observations"] = int(daily_returns.size)
+    result["daily_sharpe_annualization_factor"] = config.sharpe.daily_annualization_factor
+    if daily_returns.size > 1:
+        daily_excess = daily_returns - float(config.sharpe.daily_risk_free_rate)
+        daily_std = float(np.std(daily_excess, ddof=config.sharpe.ddof))
+        if daily_std > 0:
+            daily_sharpe = float(np.mean(daily_excess) / daily_std)
+            result["daily_sharpe_ratio"] = daily_sharpe
+            result["annualized_daily_sharpe_ratio"] = _annualized(
+                daily_sharpe, config.sharpe.daily_annualization_factor
+            )
+        else:
+            result["daily_sharpe_ratio"] = None
+            result["annualized_daily_sharpe_ratio"] = None
+            add_diagnostic(
+                diagnostics,
+                "undefined_daily_sharpe",
+                "Daily Sharpe is undefined with zero daily return dispersion",
+            )
+    else:
+        result["daily_sharpe_ratio"] = None
+        result["annualized_daily_sharpe_ratio"] = None
+        add_diagnostic(
+            diagnostics,
+            "undefined_daily_sharpe",
+            "Daily Sharpe is undefined with fewer than two daily return observations",
+        )
+
     for prefix, periods in (("daily", daily), ("monthly", monthly), ("annual", annual)):
         returns_pct = [period_return * 100 for _, _, period_return, _ in periods if period_return is not None]
         profit_pct = [_safe_div(pnl, initial) * 100 for _, _, _, pnl in periods] if initial else []

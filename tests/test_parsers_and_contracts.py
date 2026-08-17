@@ -39,6 +39,22 @@ DEALS_ONLY_XML = b'''<?xml version="1.0"?>
 <report><initialDeposit>1000</initialDeposit>
 <deal><deal>1</deal><symbol>TEST_SYMBOL</symbol><type>buy</type><direction>in</direction><volume>1</volume><time>2024.01.01 10:00:00</time><price>1.1</price><commission>-2</commission></deal>
 <deal><deal>2</deal><symbol>TEST_SYMBOL</symbol><type>sell</type><direction>out</direction><volume>1</volume><time>2024.01.02 10:00:00</time><price>1.11</price><profit>100</profit></deal></report>'''
+
+ORDERS_AND_DEALS_HTML = b"""
+<html><body><table>
+<tr><td>Initial Deposit:</td><td>1000 USD</td><td>Currency:</td><td>USD</td></tr>
+<tr><th>Orders</th></tr>
+<tr><th>Open Time</th><th>Order</th><th>Symbol</th><th>Type</th><th>Volume</th><th>Price</th><th>S / L</th><th>T / P</th><th>Time</th><th>State</th><th>Comment</th></tr>
+<tr><td>2024.01.01 10:00:00</td><td>2</td><td>TEST_SYMBOL</td><td>buy</td><td>1</td><td>1.1000</td><td>1.0900</td><td>1.1200</td><td>2024.01.01 10:00:00</td><td>filled</td><td>entry</td></tr>
+<tr><td>2024.01.02 10:00:00</td><td>3</td><td>TEST_SYMBOL</td><td>sell</td><td>1</td><td>1.1100</td><td></td><td></td><td>2024.01.02 10:00:00</td><td>filled</td><td>tp</td></tr>
+<tr><th>Deals</th></tr>
+<tr><th>Time</th><th>Deal</th><th>Symbol</th><th>Type</th><th>Direction</th><th>Volume</th><th>Price</th><th>Order</th><th>Commission</th><th>Swap</th><th>Profit</th><th>Balance</th></tr>
+<tr><td>2024.01.01 10:00:00</td><td>2</td><td>TEST_SYMBOL</td><td>buy</td><td>in</td><td>1</td><td>1.1000</td><td>2</td><td>0</td><td>0</td><td>0</td><td>1000</td></tr>
+<tr><td>2024.01.02 10:00:00</td><td>3</td><td>TEST_SYMBOL</td><td>sell</td><td>out</td><td>1</td><td>1.1100</td><td>3</td><td>-2</td><td>-1</td><td>100</td><td>1097</td></tr>
+</table></body></html>
+"""
+
+
 class ParserContractTests(unittest.TestCase):
     def test_valid_single_run_xml(self) -> None:
         report = load_report(VALID_XML)
@@ -55,6 +71,14 @@ class ParserContractTests(unittest.TestCase):
         self.assertEqual(len(report.trades), 1)
         self.assertEqual(report.trades[0].deal_ids, ("1", "2"))
         self.assertEqual(report.trades[0].profit, 98.0)
+
+    def test_html_deals_hydrate_explicit_stop_from_opening_order(self) -> None:
+        report = load_report(ORDERS_AND_DEALS_HTML)
+        self.assertEqual(len(report.trades), 1)
+        self.assertEqual(report.trades[0].ticket, "2")
+        self.assertEqual(report.trades[0].sl, 1.09)
+        self.assertEqual(report.trades[0].tp, 1.12)
+        self.assertEqual(report.trades[0].profit, 97.0)
 
     def test_malformed_xml_has_public_parse_error(self) -> None:
         with self.assertRaises(ReportParseError):

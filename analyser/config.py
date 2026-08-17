@@ -20,6 +20,8 @@ class SharpeConfig:
     risk_free_rate: float = 0.0
     annualization_factor: float | None = None
     ddof: int = 0
+    daily_risk_free_rate: float = 0.0
+    daily_annualization_factor: float | None = 365.2425
 
 
 @dataclass(frozen=True)

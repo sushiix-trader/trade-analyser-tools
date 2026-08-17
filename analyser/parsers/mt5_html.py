@@ -44,6 +44,11 @@ def _is_position_header(cells: list[str]) -> bool:
     )
 
 
+def _is_orders_header(cells: list[str]) -> bool:
+    normalized = {_norm(cell) for cell in cells}
+    return {"opentime", "order", "symbol", "type", "sl", "tp"}.issubset(normalized)
+
+
 def _parse_summary_value(label: str, value: str) -> float | str | None:
     parsed = parse_number(value)
     return parsed if parsed is not None else (value.strip() or None)
@@ -61,11 +66,18 @@ class MT5HtmlParser(ReportParser):
             return report
 
         self._extract_metadata(tables[0], report)
+        order_stops: dict[tuple[str, str], dict[str, float | None]] = {}
+        order_section = self._find_section(tables, _is_orders_header)
+        if order_section is not None:
+            table, header_index, header = order_section
+            order_rows = self._read_rows(table, header_index, header)
+            order_stops = self._parse_order_levels(order_rows)
+
         deal_section = self._find_section(tables, _is_deals_header)
         if deal_section is not None:
             table, header_index, header = deal_section
             rows = self._read_rows(table, header_index, header)
-            self._parse_deals(rows, report, diagnostics)
+            self._parse_deals(rows, report, diagnostics, order_stops=order_stops)
         else:
             position_section = self._find_section(tables, _is_position_header)
             if position_section is not None:
@@ -186,11 +198,39 @@ class MT5HtmlParser(ReportParser):
             report.broker = report.server
 
     @staticmethod
+    def _parse_order_levels(
+        rows: list[dict[str, str]],
+    ) -> dict[tuple[str, str], dict[str, float | None]]:
+        """Index opening-order risk levels for completed-position hydration.
+
+        MT5 HTML reports put the explicit S/L and T/P on the opening order,
+        while the canonical completed position is reconstructed from the
+        Deals section.  Keep the order table as supporting evidence and join
+        it by symbol/order id rather than treating orders as trades.
+        """
+
+        levels: dict[tuple[str, str], dict[str, float | None]] = {}
+        for row in rows:
+            symbol = row.get("symbol") or ""
+            order_id = row.get("order") or ""
+            if not symbol or not order_id:
+                continue
+            sl = parse_number(row.get("sl"))
+            tp = parse_number(row.get("tp"))
+            if sl is None and tp is None:
+                continue
+            levels[(symbol, order_id)] = {"sl": sl, "tp": tp}
+        return levels
+
+    @staticmethod
     def _parse_deals(
         rows: list[dict[str, str]],
         report: Report,
         diagnostics: list[Diagnostic],
+        *,
+        order_stops: dict[tuple[str, str], dict[str, float | None]] | None = None,
     ) -> None:
+        order_stops = order_stops or {}
         active: dict[tuple[str, str], deque[dict[str, str]]] = defaultdict(deque)
         for row in rows:
             timestamp = parse_datetime(row.get("time"))
@@ -229,8 +269,10 @@ class MT5HtmlParser(ReportParser):
                 )
                 continue
             entry = active[key].popleft()
+            entry_order = entry.get("order") or entry.get("deal")
+            order_levels = order_stops.get((symbol, entry_order), {})
             fields = {
-                "ticket": entry.get("order") or entry.get("deal") or deal_id,
+                "ticket": entry_order or deal_id,
                 "position_id": entry.get("position_id") or entry.get("position") or entry.get("order") or entry.get("deal"),
                 "deal_ids": ",".join(
                     value for value in (entry.get("deal"), deal_id) if value
@@ -242,6 +284,8 @@ class MT5HtmlParser(ReportParser):
                 "close_time": row.get("time"),
                 "open_price": entry.get("price"),
                 "close_price": row.get("price"),
+                "sl": order_levels.get("sl"),
+                "tp": order_levels.get("tp"),
                 "profit": row.get("profit"),
                 "swap": (parse_number(entry.get("swap")) or 0.0)
                 + (parse_number(row.get("swap")) or 0.0),
