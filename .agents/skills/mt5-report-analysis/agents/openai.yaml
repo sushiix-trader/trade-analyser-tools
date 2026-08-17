@@ -1,0 +1,4 @@
+interface:
+  display_name: "MT5 Report Analysis"
+  short_description: "Deterministic MT5 report analysis via analyser"
+  default_prompt: "Use the canonical analyser API for this MT5 report request."

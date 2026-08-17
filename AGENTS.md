@@ -1,5 +1,11 @@
 # Agent workflow
 
+## Query routing
+
+For natural-language questions about what this platform can do or how to use it,
+read `.agents/skills/mt5-report-analysis/SKILL.md` before acting. It maps
+common report-analysis questions to the canonical typed `analyser` API.
+
 ## Trading-report work
 
 Use the `analyser` package as the canonical trading-report interface.
