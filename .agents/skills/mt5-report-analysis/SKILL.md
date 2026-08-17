@@ -232,6 +232,16 @@ and explicit stops. Missing/invalid stops are excluded with warnings and an
 audit; if no eligible trades remain, raise `WhatIfError`. Preserve
 `result.source_report`, `result.what_if`, and deterministic provenance.
 
+What-if calculations do not fetch external market, broker, OHLC, or FX datasets
+at runtime. The caller must still provide the static instrument metadata needed
+for monetary risk conversion. A fixed historical-average tick value is
+reproducible but approximate and must retain its source/reference-period
+provenance. Resizing scales the report's recorded profit, swap, and commission
+linearly; it does not model broker commission tiers, minimum charges, changing
+swap schedules, trade-date currency conversion, slippage, spread, or other
+nonlinear execution effects. Treat this as a documented what-if limitation,
+not an exact broker-account reconstruction.
+
 For portfolios, put `what_if=` on each `PortfolioMember`, not on combined
 numbers.
 

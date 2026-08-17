@@ -25,7 +25,11 @@ class InstrumentSpec:
     ``historical_average`` basis is deterministic but approximate: it uses a
     fixed average conversion instead of the trade-date conversion.  That
     approximation is surfaced as a warning in the what-if result and its
-    provenance.
+    provenance. What-if sizing does not fetch external datasets at runtime;
+    the caller supplies this static metadata. Resized profit, swap, and
+    commission are scaled linearly from the report and therefore do not model
+    nonlinear broker charges, changing swap schedules, trade-date conversion,
+    spread, slippage, or other execution effects.
     """
 
     symbol: str
