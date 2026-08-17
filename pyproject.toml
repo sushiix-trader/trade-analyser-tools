@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "trade-analyser-tools"
 version = "0.1.0"
 description = "Deterministic MetaTrader 5 strategy report analytics"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = [
   "beautifulsoup4>=4.12",

@@ -278,3 +278,8 @@ python3 -m unittest discover -s tests -v
 
 The full agent workflow and canonical API routing instructions are in
 [`.agents/skills/mt5-report-analysis/SKILL.md`](.agents/skills/mt5-report-analysis/SKILL.md).
+
+## License
+
+This project is released under the [MIT License](LICENSE). The current package
+version is **0.1.0**.
