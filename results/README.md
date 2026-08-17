@@ -4,7 +4,9 @@ These artifacts were generated through the public `analyser` API from a local
 MT5 report that was used only as a structural template. The committed fixture
 contains deterministic synthetic data: strategy names, symbols, inputs,
 comments, identifiers, timestamps, prices, and P&L were replaced or scrambled.
-It is not a real trading result.
+It is not a real trading result. Human-facing Markdown and CSV values are
+formatted to 2 decimal places; the API's in-memory values remain available for
+analysis and reproducibility.
 
 Source reports:
 
@@ -15,7 +17,7 @@ Source reports:
 Single-report outputs:
 
 - [Metrics and monthly Markdown](analysis.md)
-- [Full deterministic JSON](analysis.json)
+- [Rounded deterministic JSON](analysis.json)
 - [Metrics CSV](metrics.csv)
 - [Monthly returns CSV](monthly.csv)
 - [Monthly drawdown CSV](monthly-drawdown.csv)
@@ -37,3 +39,13 @@ Monte Carlo outputs:
 
 - [Monte Carlo p5/p50/p95 summary](monte-carlo-summary.md)
 - [Monte Carlo simulated paths](monte-carlo-paths.png)
+
+Visual outputs:
+
+![Equity and drawdown](equity-drawdown.png)
+
+![Three-strategy portfolio equity and drawdown](portfolio-equity-drawdown.png)
+
+![Daily profit correlation heat map](daily-profit-correlation.png)
+
+![Monte Carlo simulated paths and percentile bands](monte-carlo-paths.png)
