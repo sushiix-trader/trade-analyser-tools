@@ -1,8 +1,24 @@
-# Trade Analyser Tools
+# Systematic Strategy Analyzer
 
-A fast, deterministic Python library for analysing MetaTrader 5 Strategy
-Tester reports. It is an analysis platform only: there is no live execution,
-order placement, or GUI in the current release.
+![Systematic Strategy Analyzer](assets/systematic-strategy-analyzer.png)
+
+**Systematic Strategy Analyzer.**
+
+**Agent-native API to analyse and construct portfolios of MT5 strategies and backtests.**
+
+**COMING SOON: GUI for users to interact with.**
+
+[Follow my X for more systematic trading strategies and tricks.](https://x.com/SystematicEdge1)
+
+## About
+
+A fast, deterministic Python library for analysing MetaTrader 5 Strategy Tester
+reports. It is an analysis platform only: there is no live execution, order
+placement, or GUI in the current release.
+
+I got tired of having to manually use QuantAnalyzer because Codex could not use
+it automatically. So instead, I found the features I liked and implemented my
+own versions of them.
 
 ## Questions this API can answer
 
