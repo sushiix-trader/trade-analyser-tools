@@ -39,6 +39,7 @@ Portfolio outputs:
 - [Daily profit correlation table](daily-profit-correlation.csv)
 - [Daily profit correlation heat map](daily-profit-correlation.png)
 - [Equal-weight portfolio interactive webpage](interactive-portfolio-report.html)
+- [Equal-weight portfolio rendered preview](interactive-portfolio-report-preview.png)
 - [Trade-profit bar chart examples](trade-profit-bars/README.md)
 
 The interactive portfolio page combines the three sanitized example reports
@@ -57,6 +58,10 @@ Monte Carlo outputs:
 Visual outputs:
 
 ![Equity and drawdown](equity-drawdown.png)
+
+![Rendered single-strategy interactive report](interactive-report-preview.png)
+
+![Rendered equal-weight portfolio interactive report](interactive-portfolio-report-preview.png)
 
 ![Three-strategy portfolio equity and drawdown](portfolio-equity-drawdown.png)
 

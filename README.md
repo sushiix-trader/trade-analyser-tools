@@ -83,6 +83,12 @@ The report name can be set during generation with
 **Edit name**. The browser edit is presentation-only and is preserved in the
 shareable URL fragment.
 
+Rendered previews of the actual HTML pages:
+
+[![Rendered single-strategy report](results/interactive-report-preview.png)](results/interactive-report.html)
+
+[![Rendered equal-weight portfolio report](results/interactive-portfolio-report-preview.png)](results/interactive-portfolio-report.html)
+
 Text and table examples:
 
 - [Metrics and ratios](results/analysis.md)
