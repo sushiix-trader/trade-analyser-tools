@@ -3,6 +3,15 @@
 This context defines the domain language for deterministic analysis of single-run
 MetaTrader 5 strategy reports and their derived portfolio views.
 
+## Agent-first framework
+
+The repository is designed as an **Agent-first** framework. Natural-language
+questions should resolve to the public typed `analyser` API and its eager result
+models. Reusable analysis, serialization, caching, and chart behavior belongs in
+the package; user-facing workflows must not depend on one-off calculation
+scripts. Any future GUI or remote delivery layer should consume the same
+deterministic results.
+
 ## Report and trade language
 
 **Canonical report**:

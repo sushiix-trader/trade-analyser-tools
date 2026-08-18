@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+
+import numpy as np
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,6 +12,8 @@ import unittest
 from analyser import (
     AnalysisStore,
     AnalyzedPortfolioMember,
+    ChartConfig,
+    MonthlyPerformanceTableChartConfig,
     PortfolioConfig,
     PortfolioMember,
     analyze,
@@ -16,8 +21,12 @@ from analyser import (
     combine_analyses,
     load_report,
     LongOnly,
+    render_equity_drawdown_chart,
+    render_monthly_performance_table,
+    save_monthly_performance_table,
     ShortOnly,
 )
+from analyser.charts import _high_water_mark_drawdown
 from analyser.errors import CurrencyMismatchError, DuplicatePortfolioMemberError, TimezoneMismatchError
 from analyser.models import AccountPoint
 
@@ -78,6 +87,91 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(result.monthly[0].pnl, 140.0)
         self.assertEqual(result.monthly[-1].pnl, -40.0)
         self.assertTrue(any(w.code == "member_active_period_differs" for w in result.warnings))
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib"), "matplotlib is not installed")
+    def test_portfolio_chart_optionally_overlays_allocated_member_equity(self) -> None:
+        result = analyze_portfolio(
+            members(),
+            PortfolioConfig(portfolio_initial_capital=1000.0),
+        )
+
+        portfolio_only = render_equity_drawdown_chart(result, title="Portfolio")
+        with_members = render_equity_drawdown_chart(
+            result,
+            title="Portfolio with members",
+            show_member_equity=True,
+        )
+        configured = render_equity_drawdown_chart(
+            result,
+            title="Portfolio with members",
+            chart_config=ChartConfig(show_member_equity=True),
+        )
+        normalized = render_equity_drawdown_chart(
+            result,
+            title="Normalized portfolio with members",
+            show_member_equity=True,
+            normalize_equity=True,
+        )
+        normalized_configured = render_equity_drawdown_chart(
+            result,
+            title="Normalized portfolio with members",
+            chart_config=ChartConfig(
+                show_member_equity=True,
+                normalize_equity=True,
+            ),
+        )
+
+        self.assertTrue(portfolio_only.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(with_members.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(normalized.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(with_members, configured)
+        self.assertEqual(normalized, normalized_configured)
+        self.assertNotEqual(portfolio_only, with_members)
+        self.assertNotEqual(with_members, normalized)
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib"), "matplotlib is not installed")
+    def test_monthly_performance_table_image_is_deterministic_and_public(self) -> None:
+        result = analyze_portfolio(
+            members(),
+            PortfolioConfig(portfolio_initial_capital=1000.0),
+        )
+        config = MonthlyPerformanceTableChartConfig()
+
+        rendered = render_monthly_performance_table(
+            result,
+            title="Monthly returns",
+            chart_config=config,
+        )
+        rendered_from_table = render_monthly_performance_table(
+            result.monthly_performance,
+            title="Monthly returns",
+            chart_config=config,
+        )
+
+        self.assertTrue(rendered.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(rendered, rendered_from_table)
+        with TemporaryDirectory() as directory:
+            destination = save_monthly_performance_table(
+                result,
+                Path(directory) / "monthly-performance.png",
+                title="Monthly returns",
+                chart_config=config,
+            )
+            self.assertEqual(destination.read_bytes(), rendered)
+
+    def test_normalized_chart_drawdown_uses_peak_relative_denominator(self) -> None:
+        equity = np.asarray([100.0, 200.0, 150.0])
+
+        drawdown = _high_water_mark_drawdown(equity, percentage=True)
+
+        self.assertEqual(tuple(drawdown), (0.0, 0.0, -25.0))
+
+    def test_currency_chart_drawdown_remains_a_money_difference(self) -> None:
+        equity = np.asarray([100.0, 200.0, 150.0])
+
+        drawdown = _high_water_mark_drawdown(equity, percentage=False)
+
+        self.assertEqual(tuple(drawdown), (0.0, 0.0, -50.0))
 
     def test_member_filters_apply_before_portfolio_allocation(self) -> None:
         filtered_members = [

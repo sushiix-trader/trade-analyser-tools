@@ -215,6 +215,55 @@ overlapping active dates. Undefined cells are `None` with diagnostics. Use
 fixed `[-1, 1]` heat-map artifact with two-decimal labels and grey undefined
 cells.
 
+### Trade-profit bar charts
+
+For “show trade profit by opening hour”, “show closing-hour profit”, or
+“show profit by day of week”, use the eager grouped analytics and chart API:
+
+```python
+from analyser import (
+    TradeProfitGrouping,
+    TradeProfitMeasure,
+    save_trade_profit_bar_chart,
+    save_trade_profit_bar_charts,
+)
+
+# Typed values are already available without chart rendering.
+for bucket in result.trade_profit.open_hour.buckets:
+    print(bucket.label, bucket.net_profit, bucket.percentage_gain, bucket.trade_count)
+
+# One artifact, with the selected measure.
+save_trade_profit_bar_chart(
+    result,
+    "opening-hour-net-profit.png",
+    grouping=TradeProfitGrouping.OPEN_HOUR,
+    measure=TradeProfitMeasure.NET_PROFIT,
+)
+
+# The default creates all four groupings x both measures (eight PNGs).
+paths = save_trade_profit_bar_charts(result, "trade-profit-bars")
+```
+
+The four eager dimensions are `OPEN_HOUR`, `CLOSE_HOUR`,
+`OPEN_DAY_OF_WEEK`, and `CLOSE_DAY_OF_WEEK`. `NET_PROFIT` uses the canonical
+`Trade.profit` value (already net of the report's swap and commission); it never
+uses `Trade.gross_profit`. `PERCENTAGE_GAIN` uses the report's original
+initial deposit for a single result and total portfolio initial capital for an
+allocated portfolio result. All hour/day buckets are present, including zero
+buckets, and values/counts are deterministic. Portfolio `result.trade_profit`
+is the allocated combined view; `result.raw_trade_profit` is a mapping of raw
+member views, while `result.members[*].analysis.trade_profit` remains the
+member-level view.
+
+Missing opening/closing timestamps are excluded only from the affected grouping
+and appear as structured warnings on `result.warnings`,
+`result.trade_profit.warnings`, and the grouping's `.warnings`. The renderer
+formats money/percent values and trade counts to two decimal places where
+applicable, includes report timezone and active date metadata, and consumes
+existing buckets without recalculating analysis. If matplotlib is not
+installed, the typed analytics and serializers still work; only rendering
+requires the optional `charts` extra.
+
 ### What-if sizing
 
 For requests such as:
@@ -254,6 +303,19 @@ not an exact broker-account reconstruction.
 For portfolios, put `what_if=` on each `PortfolioMember`, not on combined
 numbers.
 
+### Known limitations and future security hardening
+
+- A single report may use any account currency; USD is not hard-coded. Portfolio
+  members require one common non-empty currency and the API performs no FX
+  conversion.
+- The current XML path uses standard-library `ElementTree` and reads the full
+  input before parsing. External entities are rejected in the current runtime,
+  but hostile XML/resource-exhaustion protection and a configurable input-size
+  limit remain future work. Treat report inputs as trusted/local and do not
+  expose this parser as a public hostile-upload service.
+- Future hardening is to adopt `defusedxml`, enforce a maximum input size, and
+  add malicious-XML regression tests.
+
 ### Charts, cache, and exports
 
 For “create an equity/drawdown chart”, use:
@@ -262,6 +324,45 @@ For “create an equity/drawdown chart”, use:
 from analyser import save_equity_drawdown_chart
 save_equity_drawdown_chart(result, destination)
 ```
+
+The default chart shows only the selected portfolio or strategy equity curve
+and its high-water-mark drawdown. For a portfolio, optionally overlay each
+member's capital-allocated equity curve without recalculating analysis:
+
+```python
+save_equity_drawdown_chart(
+    portfolio,
+    "portfolio-with-strategies.png",
+    show_member_equity=True,
+)
+```
+
+The same options are available through `ChartConfig`. Set
+`normalize_equity=True` when comparing curves with different allocated opening
+capital: each displayed curve starts at `0.00%`, the upper panel shows
+cumulative percentage return, and the lower panel shows peak-relative percentage
+high-water-mark drawdown, matching `result.metrics.max_drawdown_pct`. Member traces are normalized against their own
+allocated opening capital; the portfolio trace is normalized against total
+portfolio opening capital. Without this option, traces remain in account
+currency. The member traces come from `portfolio.equity_matrix`; the chart
+never recalculates analysis. For separate member charts, use each
+`portfolio.members[*].analysis` with the same chart API.
+
+For a year-by-month returns image, use the typed monthly-performance table
+renderer:
+
+```python
+from analyser import save_monthly_performance_table
+save_monthly_performance_table(
+    portfolio,
+    "monthly-performance.png",
+)
+```
+
+The table image is deterministic, formats returns to two decimal places, colors
+positive and negative values, and displays undefined months as `—`. It consumes
+`portfolio.monthly_performance` without recalculating analysis. Use
+`render_monthly_performance_table()` when bytes are preferable to a file.
 
 The chart uses the already-calculated selected equity curve and high-water-mark
 drawdown; it does not recalculate analysis. For repeated retrieval, use:

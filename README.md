@@ -19,6 +19,14 @@ I got tired of having to manually use QuantAnalyzer because Codex could not use
 it automatically. So instead, I found the features I liked and implemented my
 own versions of them.
 
+## Agent-first framework
+
+This project is an **Agent-first** analysis framework: natural-language requests
+are routed to typed, deterministic APIs instead of requiring the user or agent
+to write one-off calculation scripts. The Python API is the canonical layer;
+charts, reports, caching, Telegram delivery, and the future GUI sit on top of
+the same reproducible analysis results.
+
 ## Questions this API can answer
 
 - **“What if we take only the long trades from this strategy?”**
@@ -72,6 +80,7 @@ Text and table examples:
 - [In-sample/out-of-sample analysis](results/sample-periods.md)
 - [Portfolio report](results/portfolio.md)
 - [Daily profit correlation table](results/daily-profit-correlation.csv)
+- [Trade-profit bar chart examples](results/trade-profit-bars/README.md)
 - [Monte Carlo p5/p50/p95 summary](results/monte-carlo-summary.md)
 
 ### Example: returns broken down by month
@@ -115,7 +124,15 @@ Visual examples:
 
 [![Three-strategy portfolio equity and drawdown](results/portfolio-equity-drawdown.png)](results/portfolio-equity-drawdown.png)
 
+[![Portfolio equity with individual strategy curves](results/portfolio-equity-with-strategies.png)](results/portfolio-equity-with-strategies.png)
+
+[![Equal-allocation portfolio normalized percentage returns](results/portfolio-equity-with-strategies-equal-percent.png)](results/portfolio-equity-with-strategies-equal-percent.png)
+
+[![1% risk equal-allocation monthly performance table](results/portfolio-what-if-1pct-monthly-performance.png)](results/portfolio-what-if-1pct-monthly-performance.png)
+
 [![Daily profit correlation heat map](results/daily-profit-correlation.png)](results/daily-profit-correlation.png)
+
+[![Net profit by opening hour](results/trade-profit-bars/opening-hour-net-profit.png)](results/trade-profit-bars/opening-hour-net-profit.png)
 
 [![Monte Carlo simulated paths and percentile bands](results/monte-carlo-paths.png)](results/monte-carlo-paths.png)
 
@@ -267,6 +284,27 @@ be reproduced later.
 
 Undefined values are returned as `None`/JSON `null` with a structured warning
 rather than being guessed or silently converted to infinity.
+
+## Limitations
+
+- The analyser accepts single-run MT5 HTML/HTM and XML reports. Optimization
+  workbooks and unsupported account-history exports are rejected.
+- A report is not required to be in USD. Money values use the report's account
+  currency. Portfolio members must have the same non-empty currency; the API
+  does not perform foreign-exchange conversion.
+- Completed closed positions are the canonical trades. Open positions, partial
+  or unmatched deals, and unsupported fields may be excluded with warnings.
+- What-if risk sizing requires explicit stop-loss and instrument metadata. It
+  does not model historical FX conversion, slippage, spread changes, or
+  broker-specific commission tiers.
+- Monte Carlo is trade-level permutation/bootstrap analysis, not a market-price
+  or tick-level simulation.
+- Future security hardening is still required before accepting hostile XML or
+  unrestricted file uploads: XML parsing needs a hardened parser and inputs
+  need a maximum size limit.
+
+See the [API usage guide](docs/usage.md) for the detailed limitations and
+workflow notes.
 
 ## Development
 

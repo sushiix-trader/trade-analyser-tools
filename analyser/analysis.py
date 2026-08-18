@@ -27,6 +27,7 @@ from .equity import CurveSeries, reconstructed_curve, source_balance_curve, sour
 from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
 from .periods import PeriodWindow, SamplePeriodConfig
+from .trade_profit import TradeProfitAnalysis, build_trade_profit_analysis
 from .models import Report, Trade
 from .what_if import WhatIfConfig, WhatIfResult
 from .pipeline import PreparedView, TransformationPlan, prepare_analysis
@@ -228,6 +229,10 @@ class PeriodAnalysisResult:
         return self.analysis.monthly_performance
 
     @property
+    def trade_profit(self) -> TradeProfitAnalysis:
+        return self.analysis.trade_profit
+
+    @property
     def what_if(self) -> WhatIfResult | None:
         return self.analysis.what_if
 
@@ -278,6 +283,7 @@ class AnalysisResult:
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
     monthly_performance: MonthlyPerformanceTable
+    trade_profit: TradeProfitAnalysis
     by_symbol: dict[str, dict[str, Any]]
     validation: ValidationResult
     warnings: tuple[Diagnostic, ...]
@@ -445,6 +451,18 @@ class AnalysisResult:
 
         filter_spec_data = payload.get("filter_spec")
         filter_spec = filter_from_dict(filter_spec_data) if filter_spec_data else None
+        trade_profit_data = payload.get("trade_profit")
+        trade_profit = (
+            TradeProfitAnalysis.from_dict(trade_profit_data)
+            if trade_profit_data is not None
+            else build_trade_profit_analysis(
+                report.ordered_trades(),
+                initial_capital=report.initial_deposit,
+                currency=report.currency,
+                timezone=report.timezone,
+            )
+        )
+
         filter_config_data = payload.get("filter_config")
         filter_config = FilterConfig(**filter_config_data) if filter_config_data is not None else None
         selection_data = payload.get("selection")
@@ -469,6 +487,7 @@ class AnalysisResult:
             monthly=monthly,
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
             monthly_performance=monthly_performance,
+            trade_profit=trade_profit,
             by_symbol=payload.get("by_symbol", {}),
             validation=validation,
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
@@ -728,7 +747,16 @@ def _analysis_config_from_provenance(provenance: dict[str, Any]) -> AnalysisConf
     sharpe_data = dict(data.pop("sharpe", {}))
     sample_periods = SamplePeriodConfig.from_dict(data.pop("sample_periods", None))
     what_if = WhatIfConfig.from_dict(data.pop("what_if", None))
-    return AnalysisConfig(**data, sharpe=SharpeConfig(**sharpe_data), sample_periods=sample_periods, what_if=what_if)
+    trade_profit_data = data.pop("trade_profit", None) or {}
+    from .trade_profit import TradeProfitConfig
+    trade_profit = TradeProfitConfig(**trade_profit_data)
+    return AnalysisConfig(
+        **data,
+        sharpe=SharpeConfig(**sharpe_data),
+        sample_periods=sample_periods,
+        what_if=what_if,
+        trade_profit=trade_profit,
+    )
 
 
 def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
@@ -746,6 +774,14 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
     metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
     monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
+    trade_profit = build_trade_profit_analysis(
+        report.ordered_trades(),
+        initial_capital=report.initial_deposit,
+        currency=report.currency,
+        timezone=report.timezone or config.timezone,
+        config=config.trade_profit,
+    )
+    diagnostics.extend(trade_profit.warnings)
     validation = _validate(report, metrics)
     if validation.status != "match":
         diagnostics.append(Diagnostic(
@@ -765,6 +801,7 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
         monthly_performance=monthly_performance,
+        trade_profit=trade_profit,
         by_symbol=_by_symbol(report) if config.include_breakdowns else {},
         validation=validation,
         warnings=tuple(diagnostics),

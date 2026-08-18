@@ -32,8 +32,12 @@ Portfolio outputs:
 - [Portfolio Markdown report](portfolio.md)
 - [Portfolio allocated equity CSV](portfolio-equity.csv)
 - [Portfolio equity and drawdown chart](portfolio-equity-drawdown.png)
+- [Portfolio equity with individual strategy curves](portfolio-equity-with-strategies.png)
+- [Equal-allocation normalized portfolio curves](portfolio-equity-with-strategies-equal-percent.png)
+- [Monthly performance table image](portfolio-what-if-1pct-monthly-performance.png)
 - [Daily profit correlation table](daily-profit-correlation.csv)
 - [Daily profit correlation heat map](daily-profit-correlation.png)
+- [Trade-profit bar chart examples](trade-profit-bars/README.md)
 
 Monte Carlo outputs:
 
@@ -46,6 +50,12 @@ Visual outputs:
 
 ![Three-strategy portfolio equity and drawdown](portfolio-equity-drawdown.png)
 
+![Equal-allocation portfolio normalized percentage returns](portfolio-equity-with-strategies-equal-percent.png)
+
+![1% risk equal-allocation monthly performance table](portfolio-what-if-1pct-monthly-performance.png)
+
 ![Daily profit correlation heat map](daily-profit-correlation.png)
+
+![Net profit by opening hour](trade-profit-bars/opening-hour-net-profit.png)
 
 ![Monte Carlo simulated paths and percentile bands](monte-carlo-paths.png)

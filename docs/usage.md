@@ -47,6 +47,60 @@ Every analysis is eager and deterministic. Values can be retrieved later from
 `result.monthly_performance`, `result.balance`, `result.equity`,
 `result.warnings`, and `result.provenance`.
 
+## Limitations and assumptions
+
+### Report and trade scope
+
+- The supported inputs are single-run MT5 `.htm`, `.html`, and XML reports.
+  Optimization workbooks, unhydrated Git LFS pointers, and unsupported account
+  history exports are rejected.
+- Completed closed positions are the canonical trade unit. Open positions,
+  partial/unmatched deals, and fields that cannot be normalized may be omitted
+  with diagnostics.
+- External cash flows are not modeled. The source balance/equity is preserved,
+  while the reconstructed curve is calculated from the canonical completed
+  positions.
+- M1/OHLC data is not currently an input source. R-expectancy and bars-per-trade
+  metrics remain undefined unless the report supplies explicit R/bar values.
+
+### Currency and timezone
+
+Reports do **not** have to be in USD. A single report may use another account
+currency, such as AUD or EUR, and its money metrics remain denominated in that
+report currency. USD is the convention for your current backtest workflow, not
+a hard-coded parser requirement.
+
+Portfolio members must have one common, non-empty account currency and compatible
+report timezones. The portfolio API does not perform FX conversion, so mixing a
+USD report with an AUD report raises an error rather than producing a misleading
+combined result. For risk-based what-if sizing, `InstrumentSpec.tick_value` must
+be expressed in the report account currency and explicit instrument metadata
+and stops are required.
+
+### What-if and simulation scope
+
+- Flat-lot, percentage-risk, and dollar-risk modes are deterministic
+  transformations of completed-trade results; they are not broker execution
+  replays.
+- What-if sizing does not model historical FX conversion, slippage, spread
+  changes, margin, commission tiers, or nonlinear swap schedules. Historical
+  average tick values are approximate and must retain provenance.
+- Monte Carlo randomizes completed-trade net-profit order or samples trades. It
+  does not simulate future tick paths, market microstructure, execution latency,
+  or portfolio-level Monte Carlo in the current v1 workflow.
+- Analysis is eager and in-memory by design. Very large reports can require
+  substantial memory; multiprocessing and live execution are out of scope.
+
+### Known security limitation for future hardening
+
+The current XML path uses the standard-library XML parser and reads the complete
+input before parsing. External-entity payloads are rejected in the current
+runtime, but hostile XML can still target parser/resource exhaustion, and there
+is no configurable maximum input size. Treat report inputs as trusted/local and
+do not expose this parser directly as a public hostile-upload service. Future
+hardening should use a hardened XML parser such as `defusedxml`, enforce an input
+size limit, and add malicious-XML regression tests.
+
 ## Filter a strategy
 
 Filters select whole completed positions using their **open time**, then all
@@ -193,6 +247,66 @@ The correlation is based on daily realized net profit, aligned over the
 strategies’ overlapping active dates. Undefined cells are returned as `None`
 with diagnostics.
 
+### Trade-profit bar charts
+
+Grouped trade-profit analytics are calculated eagerly as part of every single
+report and portfolio result. They use the canonical closed-position
+`Trade.profit` value, which is already the report's net result including swap
+and commission. They never substitute the raw gross trade value.
+
+```python
+from analyser import (
+    TradeProfitGrouping,
+    TradeProfitMeasure,
+    save_trade_profit_bar_chart,
+    save_trade_profit_bar_charts,
+)
+
+# Retrieve the typed data without rendering a chart.
+opening_hours = portfolio.trade_profit.open_hour
+for bucket in opening_hours.buckets:
+    print(
+        bucket.label,
+        bucket.net_profit,
+        bucket.percentage_gain,
+        bucket.trade_count,
+    )
+
+# Money and percentage are separate chart artifacts.
+save_trade_profit_bar_chart(
+    portfolio,
+    "opening-hour-net-profit.png",
+    grouping=TradeProfitGrouping.OPEN_HOUR,
+    measure=TradeProfitMeasure.NET_PROFIT,
+)
+save_trade_profit_bar_chart(
+    portfolio,
+    "opening-hour-percentage-gain.png",
+    grouping=TradeProfitGrouping.OPEN_HOUR,
+    measure=TradeProfitMeasure.PERCENTAGE_GAIN,
+)
+
+# Or create all 8 deterministic grouping/measure combinations.
+paths = save_trade_profit_bar_charts(portfolio, "trade-profit-bars")
+```
+
+The available groupings are opening hour, closing hour, opening day of week,
+and closing day of week. Hours use the report/broker timestamp as represented
+by the parsed report (00:00 through 23:00); days run Monday through Sunday.
+Cross-date positions contribute to their opening and closing dimensions
+independently. Percentage gain is a bucket's net profit divided by the original
+report deposit, or by total portfolio initial capital for the allocated
+portfolio view. Empty buckets remain in the result with zero net profit and
+zero counts.
+
+For a portfolio, `portfolio.trade_profit` is the combined capital-allocated
+view. `portfolio.raw_trade_profit` contains the unallocated member views by
+strategy name, and `portfolio.members[0].analysis.trade_profit` exposes the
+corresponding member analysis. Missing timestamps generate structured warnings
+and exclude only the affected grouping; the rest of the analysis remains
+usable. `TradeProfitConfig(retain_trade_ids=True)` can be supplied through
+`AnalysisConfig` when deterministic ticket/position ID audit lists are needed.
+
 ## In-sample and out-of-sample analysis
 
 Both named periods are required before sample-period analysis is enabled.
@@ -268,22 +382,50 @@ from analyser import (
     AnalysisStore,
     save_correlation_heatmap,
     save_equity_drawdown_chart,
+    save_monthly_performance_table,
+    save_trade_profit_bar_charts,
 )
 
 save_equity_drawdown_chart(result, "equity-drawdown.png")
+save_equity_drawdown_chart(
+    portfolio,
+    "portfolio-with-strategies.png",
+    show_member_equity=True,
+)
+save_equity_drawdown_chart(
+    portfolio,
+    "portfolio-with-strategies-normalized.png",
+    show_member_equity=True,
+    normalize_equity=True,
+)
 save_correlation_heatmap(
     portfolio.correlations.daily_profit,
     "daily-profit-correlation.png",
 )
+save_monthly_performance_table(
+    portfolio,
+    "monthly-performance.png",
+)
+save_trade_profit_bar_charts(portfolio, "trade-profit-bars")
 
 print(result.to_json())
 print(result.to_markdown())
 print(result.to_csv("monthly"))
 ```
 
-The equity chart contains equity and high-water-mark drawdown. The correlation
-heat map uses the already-calculated matrix and displays undefined cells as
-`N/A`.
+The equity chart contains equity and high-water-mark drawdown. By default, a
+portfolio chart shows only the combined portfolio. Pass
+`show_member_equity=True` (or use `ChartConfig(show_member_equity=True)`) to
+overlay each strategy's capital-allocated equity curve; the drawdown panel
+remains the combined portfolio drawdown. Pass `normalize_equity=True` to
+rebase every displayed curve to its own opening capital: the upper panel then
+shows cumulative return from `0.00%` and the lower panel shows peak-relative percentage
+high-water-mark drawdown, matching `result.metrics.max_drawdown_pct`. This is the recommended comparison view when
+strategies have unequal allocations. The correlation heat map uses the
+already-calculated matrix and displays undefined cells as `N/A`. The
+monthly-performance table image consumes `portfolio.monthly_performance`, uses
+two-decimal percentage labels, colors positive/negative returns, and shows
+undefined months as `—`; it does not recalculate analysis.
 
 For repeated retrieval, use the deterministic local store:
 

@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .periods import SamplePeriodConfig
+from .trade_profit import TradeProfitConfig
 from .what_if import WhatIfConfig
 
 
@@ -36,6 +37,7 @@ class AnalysisConfig:
     sharpe: SharpeConfig = field(default_factory=SharpeConfig)
     sample_periods: SamplePeriodConfig | None = None
     what_if: WhatIfConfig | None = None
+    trade_profit: TradeProfitConfig = field(default_factory=TradeProfitConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

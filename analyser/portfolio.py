@@ -52,6 +52,10 @@ from .metrics import Metrics, compute_metrics
 from .models import Report, Trade
 from .periods import PeriodWindow, SamplePeriodConfig
 from .serialization import deterministic_json, to_primitive
+from .trade_profit import (
+    TradeProfitAnalysis,
+    build_trade_profit_analysis,
+)
 from .what_if import WhatIfConfig
 
 _SUPPORTED_PRIMARY_CURVES = frozenset(("source_then_reconstructed", "source", "reconstructed"))
@@ -199,6 +203,10 @@ class PortfolioPeriodResult:
         return self.analysis.monthly_performance
 
     @property
+    def trade_profit(self) -> TradeProfitAnalysis:
+        return self.analysis.trade_profit
+
+    @property
     def what_if(self):
         return self.analysis.what_if
 
@@ -242,6 +250,8 @@ class PortfolioAnalysisResult:
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
     monthly_performance: MonthlyPerformanceTable
+    trade_profit: TradeProfitAnalysis
+    raw_trade_profit: dict[str, TradeProfitAnalysis]
     raw_equity_matrix: AnalysisMatrix
     equity_matrix: AnalysisMatrix
     raw_monthly_return_matrix: AnalysisMatrix
@@ -447,12 +457,15 @@ class PortfolioAnalysisResult:
         analysis_data = dict(config_data.pop("analysis_config", {}))
         sharpe_data = dict(analysis_data.pop("sharpe", {}))
         what_if_data = analysis_data.pop("what_if", None)
+        trade_profit_data = analysis_data.pop("trade_profit", None) or {}
+        from .trade_profit import TradeProfitConfig
         config = PortfolioConfig(
             **config_data,
             analysis_config=AnalysisConfig(
                 **analysis_data,
                 sharpe=SharpeConfig(**sharpe_data),
                 what_if=WhatIfConfig.from_dict(what_if_data),
+                trade_profit=TradeProfitConfig(**trade_profit_data),
             ),
         )
         if payload.get("correlations"):
@@ -469,6 +482,29 @@ class PortfolioAnalysisResult:
                 warning_observations=config.correlation_warning_observations,
             )
             correlations = CorrelationResults(daily_profit=daily_profit)
+        trade_profit_data = payload.get("trade_profit")
+        trade_profit = (
+            TradeProfitAnalysis.from_dict(trade_profit_data)
+            if trade_profit_data is not None
+            else build_trade_profit_analysis(
+                _report_from_dict(payload["portfolio_report"]).ordered_trades(),
+                initial_capital=payload["portfolio_initial_capital"],
+                currency=payload.get("currency", ""),
+                timezone=payload.get("timezone"),
+                config=config.analysis_config.trade_profit,
+            )
+        )
+        raw_trade_profit_data = payload.get("raw_trade_profit")
+        if raw_trade_profit_data is not None:
+            raw_trade_profit = {
+                name: TradeProfitAnalysis.from_dict(item)
+                for name, item in raw_trade_profit_data.items()
+            }
+        else:
+            raw_trade_profit = {
+                member.strategy_name: member.analysis.trade_profit
+                for member in members
+            }
         return cls(
             members=members,
             portfolio_initial_capital=payload["portfolio_initial_capital"],
@@ -486,6 +522,8 @@ class PortfolioAnalysisResult:
             monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
             monthly_performance=_monthly_table_from_payload(payload, tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))),
+            trade_profit=trade_profit,
+            raw_trade_profit=raw_trade_profit,
             equity_matrix=_matrix_from_dict(payload["equity_matrix"]),
             raw_equity_matrix=_matrix_from_dict(payload["raw_equity_matrix"]),
             raw_monthly_return_matrix=_matrix_from_dict(payload["raw_monthly_return_matrix"]),
@@ -1070,7 +1108,19 @@ def combine_analyses(
         strategy_name="Portfolio",
         timezone=timezone,
     )
+    trade_profit = build_trade_profit_analysis(
+        portfolio_report.ordered_trades(),
+        initial_capital=portfolio_capital,
+        currency=currency,
+        timezone=timezone,
+        config=config.analysis_config.trade_profit,
+    )
+    raw_trade_profit = {
+        member.strategy_name: member.analysis.trade_profit
+        for member in member_results
+    }
     metric_diagnostics = list(diagnostics)
+    metric_diagnostics.extend(trade_profit.warnings)
     metrics = compute_metrics(
         portfolio_report,
         primary_curve=CurveSeries(
@@ -1274,6 +1324,8 @@ def combine_analyses(
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
         monthly_performance=monthly_performance,
+        trade_profit=trade_profit,
+        raw_trade_profit=raw_trade_profit,
         raw_equity_matrix=raw_equity_matrix,
         equity_matrix=equity_matrix,
         raw_monthly_return_matrix=raw_return_matrix,

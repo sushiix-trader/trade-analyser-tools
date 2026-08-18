@@ -25,14 +25,21 @@ from .analysis import (
 from .cache import AnalysisArtifact, AnalysisStore, PortfolioAnalysisArtifact
 from .charts import (
     ChartConfig,
+    MonthlyPerformanceTableChartConfig,
+    TradeProfitBarChartConfig,
+    render_trade_profit_bar_chart,
+    save_trade_profit_bar_chart,
+    save_trade_profit_bar_charts,
     MonteCarloPathChartConfig,
     MonteCarloPathInterval,
     render_correlation_heatmap,
     render_equity_drawdown_chart,
     render_monte_carlo_paths,
+    render_monthly_performance_table,
     save_correlation_heatmap,
     save_equity_drawdown_chart,
     save_monte_carlo_paths,
+    save_monthly_performance_table,
 )
 from .comparison import ReportComparison, TradeMismatch, compare_reports
 from .correlation import CorrelationResults, DailyProfitCorrelationResult, DailyProfitPoint
@@ -80,6 +87,15 @@ from .errors import (
 from .load import InputSource, load_report
 from .matrices import AnalysisMatrix
 from .metrics import Metrics, compute_metrics
+from .trade_profit import (
+    TradeProfitAnalysis,
+    TradeProfitBucket,
+    TradeProfitConfig,
+    TradeProfitGrouping,
+    TradeProfitGroupingResult,
+    TradeProfitMeasure,
+    build_trade_profit_analysis,
+)
 from .models import AccountPoint, Report, Trade, TradeSide
 from .what_if import InstrumentSpec, SizingAudit, WhatIfConfig, WhatIfResult, transform_report
 from .portfolio import (
@@ -100,6 +116,8 @@ __all__ = [
     "AnalysisStore",
     "render_equity_drawdown_chart",
     "save_equity_drawdown_chart",
+    "render_monthly_performance_table",
+    "save_monthly_performance_table",
     "render_monte_carlo_paths",
     "save_monte_carlo_paths",
     "render_correlation_heatmap",
@@ -110,6 +128,8 @@ __all__ = [
     "WhatIfConfig",
     "WhatIfResult",
     "ChartConfig",
+    "MonthlyPerformanceTableChartConfig",
+    "TradeProfitBarChartConfig",
     "MonteCarloPathChartConfig",
     "MonteCarloPathInterval",
     "AnalysisMatrix",
@@ -143,6 +163,12 @@ __all__ = [
     "MonthlyPerformance",
     "MonthlyPerformanceTable",
     "MonthlyPerformanceTableRow",
+    "TradeProfitAnalysis",
+    "TradeProfitBucket",
+    "TradeProfitConfig",
+    "TradeProfitGrouping",
+    "TradeProfitGroupingResult",
+    "TradeProfitMeasure",
     "AnalyzedPortfolioMember",
     "PortfolioAnalysisResult",
     "PortfolioAnalysisArtifact",
@@ -179,6 +205,10 @@ __all__ = [
     "build_equity",
     "compare_reports",
     "compute_metrics",
+    "build_trade_profit_analysis",
+    "render_trade_profit_bar_chart",
+    "save_trade_profit_bar_chart",
+    "save_trade_profit_bar_charts",
     "transform_report",
     "analyze_portfolio",
     "combine_analyses",
