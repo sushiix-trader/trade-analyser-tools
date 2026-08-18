@@ -101,6 +101,90 @@ do not expose this parser directly as a public hostile-upload service. Future
 hardening should use a hardened XML parser such as `defusedxml`, enforce an input
 size limit, and add malicious-XML regression tests.
 
+## Generate one interactive webpage
+
+The main report workflow can turn one MT5 HTML/XML report into one self-contained
+webpage. The page is generated from the eager typed result, so the browser is a
+retrieval and presentation layer rather than a second metric implementation.
+
+```python
+from analyser import (
+    InteractiveReportConfig,
+    render_interactive_report,
+    save_interactive_report,
+    serve_interactive_report,
+)
+
+# A path, bytes object, or file-like object is accepted here.
+save_interactive_report(
+    "tester_report.htm",
+    "results/tester-report.html",
+    InteractiveReportConfig(
+        title="Tester report review",
+        include_trade_table=True,
+        table_page_size=50,
+    ),
+)
+
+# You can also render an already eager result without reparsing it.
+html = render_interactive_report(result)
+
+# Optional local preview; this returns immediately and binds to localhost.
+server = serve_interactive_report(result)
+print(server.url)
+# server.close() when the preview is no longer needed
+```
+
+The default dark-blue page contains:
+
+- the Strategy Analyser logo and an overview grid with returns, drawdown,
+  annualized Sharpe, Calmar, recovery factor, profit factor, win rate,
+  average win/loss, expectancy, and streaks, with an `(i)` definition icon on
+  every displayed metric;
+- Long + Short, Long only, and Short only controls that update every downstream
+  section; for portfolios, filtering is performed per strategy before
+  allocation and recombination;
+- a normalized SVG equity/drawdown chart on a white background. Click the
+  `Values in %`/`Values in $` button to switch both axes together. The equity
+  panel marks and labels the initial balance, and drawdown is rendered in red,
+  with reconstructed/source curve choices, hover tooltips, sample-period
+  bands, and optional member curves;
+- grouped trade analysis by opening/closing hour or day of week, with the
+  selected profit measure on the y-axis and timing buckets on the x-axis;
+- a light-shaded, full-width year × Jan–Dec × YTD monthly return table with a
+  separate maximum-intramonth-drawdown table stacked directly underneath it.
+  Drawdown values are displayed as negative percentages, every defined cell is
+  red with darker red indicating a larger drawdown, and the table has a
+  `Worst` annual column containing the year's most negative monthly value. It
+  has no YTD column or horizontal scrollbar;
+- an **Edit name** control in the browser. The title is presentation metadata,
+  so users can rename the report without changing any analysis. The edited
+  name is stored in the URL fragment, survives reloads, is included in JSON
+  exports, and is copied by **Copy view link**;
+- a filterable, sortable, paginated completed-position table; and
+- a daily realized-profit correlation table for portfolios, plus warnings,
+  validation, provenance, and deterministic CSV/JSON/SVG/PNG exports.
+
+Single-report correlation is intentionally shown as “not applicable”. The page
+embeds only canonical normalized analysis data and completed positions. Original
+MT5 markup, comments, magic numbers, raw deal IDs, position IDs, and source
+paths are excluded by default. Use
+`InteractiveReportConfig(include_trade_identifiers=True)` or
+`redact_comments=False` only when explicitly required. Rendering does not start
+a server or make network requests; `serve_interactive_report()` is an explicit
+localhost-only convenience for previewing the generated page.
+
+The same result can be rendered repeatedly with byte-for-byte identical HTML
+for the same input and configuration. Use the package cache before rendering
+when repeated eager analysis retrieval is important:
+
+```python
+from analyser import AnalysisStore, save_interactive_report
+
+artifact = AnalysisStore("data/analysis-cache").analyze_or_load("tester_report.htm")
+save_interactive_report(artifact.result, "results/cached-report.html")
+```
+
 ## Filter a strategy
 
 Filters select whole completed positions using their **open time**, then all

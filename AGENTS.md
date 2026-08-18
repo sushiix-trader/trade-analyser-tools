@@ -19,6 +19,18 @@ the user answers.
 
 Use the `analyser` package as the canonical trading-report interface.
 
+### Preferred user-facing report path
+
+When a user asks to analyse a strategy or portfolio without requesting a
+specific narrower output, generate the self-contained interactive HTML report
+as the primary deliverable. For one report, analyze eagerly with
+`analyze_file()` and pass the result to `save_interactive_report()`; for a
+portfolio, build it with `analyze_portfolio()` and then render it with
+`save_interactive_report()`. Do not replace this with a custom HTML, chart, or
+metric script. Return the report path/link along with any concise summary the
+user requested. Use raw typed fields, serializers, or standalone chart APIs
+when the user explicitly asks for those formats instead.
+
 ### Standard path
 
 For one MT5 Strategy Tester report, use the eager platform API:

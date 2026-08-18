@@ -26,6 +26,7 @@ Single-report outputs:
 - [Long-only result](long-only.md)
 - [Flat-lot what-if result](what-if-flat-lot.md)
 - [In-sample/out-of-sample result](sample-periods.md)
+- [Interactive single-report webpage](interactive-report.html)
 
 Portfolio outputs:
 
@@ -37,7 +38,16 @@ Portfolio outputs:
 - [Monthly performance table image](portfolio-what-if-1pct-monthly-performance.png)
 - [Daily profit correlation table](daily-profit-correlation.csv)
 - [Daily profit correlation heat map](daily-profit-correlation.png)
+- [Equal-weight portfolio interactive webpage](interactive-portfolio-report.html)
 - [Trade-profit bar chart examples](trade-profit-bars/README.md)
+
+The interactive portfolio page combines the three sanitized example reports
+with equal raw weights (`1.0` each), normalized to one-third allocations and a
+`$300,000` portfolio initial capital. It includes the combined metrics,
+filterable member curves, monthly return/drawdown heat maps, trade analysis,
+and daily profit-correlation matrix. Its **Edit name** control changes only
+presentation metadata and persists the chosen name in the shareable URL
+fragment.
 
 Monte Carlo outputs:
 

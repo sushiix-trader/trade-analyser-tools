@@ -24,14 +24,19 @@ Resume only after the user supplies the clarification.
 1. Identify the operation: one report, report comparison, filtered report,
    sample-period analysis, portfolio, what-if sizing, chart/export, cache
    retrieval, or Monte Carlo.
-2. Accept a path, bytes, or file-like object. Use the public `analyze_file()`
+2. Unless the user asks for a narrower output, make the self-contained
+   interactive HTML report the primary deliverable for strategy and portfolio
+   analysis. Use the eager typed analyser result as its source; do not write a
+   custom HTML, chart, or metric script. Return the generated report path/link
+   and any concise summary requested by the user.
+3. Accept a path, bytes, or file-like object. Use the public `analyze_file()`
    or `load_report()`/`analyze()` seam as appropriate.
-3. Apply transformations through typed configuration and result methods. The
+4. Apply transformations through typed configuration and result methods. The
    canonical order is sample-period classification, member-level filtering,
    what-if sizing, and then metrics/curves/portfolio allocation.
-4. Return tables or typed result fields, and always surface warnings,
+5. Return tables or typed result fields, and always surface warnings,
    validation, provenance, and undefined metrics rather than hiding them.
-5. Use the existing serializers and chart APIs for artifacts. Add reusable
+6. Use the existing serializers and chart APIs for artifacts. Add reusable
    package behavior and a regression test when the requested capability does
    not yet exist.
 
@@ -378,6 +383,88 @@ occurred. Use `AnalysisStore.filter_or_load()` or
 `analyze_filtered_or_load()` for deterministic filtered retrieval, and
 `AnalysisStore.analyze_portfolio_or_load()` for portfolios. Cache keys include
 source bytes and configuration.
+
+### Interactive HTML reports
+
+For a default strategy or portfolio analysis, use the interactive report API as
+the preferred user-facing output. It is also the API for “turn one MT5 report
+into one webpage”. It
+accepts an already eager `AnalysisResult`/`PortfolioAnalysisResult`, or one raw
+HTML/XML path, bytes object, or file-like object. A raw report is still one
+strategy; a portfolio is passed as an already combined typed result.
+
+```python
+from analyser import (
+    InteractiveReportConfig,
+    PortfolioConfig,
+    analyze_portfolio,
+    render_interactive_report,
+    save_interactive_report,
+    serve_interactive_report,
+)
+
+# A raw report is parsed and analysed through the canonical eager API.
+html = render_interactive_report(
+    "tester_report.htm",
+    InteractiveReportConfig(title="Strategy review"),
+)
+
+# Or reuse an eager result without recalculating the analysis.
+save_interactive_report(result, "results/strategy-review.html")
+
+# For a portfolio, combine through the typed portfolio API first, then render
+# the one report that the user can open in a browser without Python.
+portfolio = analyze_portfolio(members, PortfolioConfig(portfolio_initial_capital=100_000))
+save_interactive_report(
+    portfolio,
+    "results/portfolio-review.html",
+    InteractiveReportConfig(title="Portfolio review"),
+)
+
+# Optional local, non-blocking preview. Always close the handle when finished.
+server = serve_interactive_report(result)
+print(server.url)
+server.close()
+```
+
+The generated page is one deterministic, offline-capable `index.html` with
+the packaged Strategy Analyser logo, inline CSS, JavaScript, and a redacted
+normalized payload. It includes the overview metric grid (with an `(i)`
+definition icon on every displayed metric), directional long/short filters,
+monthly returns and monthly drawdown tables, a white-background SVG
+equity/drawdown chart with a click-to-toggle `Values in %`/`Values in $`
+control that changes both axes together. The equity panel labels the initial
+balance and the drawdown trace is red. Grouped profit bar charts have profit on
+the y-axis and timing buckets
+on the x-axis, stacked full-width monthly returns/drawdown tables without a
+horizontal scrollbar. The drawdown matrix uses maximum intramonth drawdown by
+month, displays drawdown as negative percentages, uses an all-red intensity
+scale where larger drawdowns are darker, and has a `Worst` annual column with
+no YTD column. The page also includes a
+paginated completed-position table, a browser **Edit name** control whose
+presentation-only title is persisted in the URL fragment and JSON export,
+warnings/provenance, and
+CSV/JSON/SVG/PNG downloads. The interactive overview intentionally omits the
+custom trade-event Sharpe, daily Sharpe, and SQN cards; the canonical Python
+`AnalysisResult.metrics` object is unchanged. For portfolio results it also
+includes member selectors, allocated/member equity toggles, and the eager daily
+realized-profit correlation matrix/heat map. Direction changes are applied
+independently to each portfolio member before the portfolio is recombined;
+trades are never netted.
+
+The default payload excludes original report markup, comments, magic numbers,
+raw deal IDs, position/ticket identifiers, and source paths. Set
+`include_trade_identifiers=True` or `redact_comments=False` only when those
+fields are intentionally needed. The URL fragment stores only non-sensitive UI
+state such as the selected direction and view. No network request or implicit
+server is started by rendering. The browser displays the Python-calculated
+variants; it does not implement a second competing metric engine.
+
+Interactive rendering is a presentation/export layer and does not add live
+execution, remote upload, authentication, collaboration, Monte Carlo controls,
+or a GUI application. Treat generated pages as report artifacts: if they
+contain trade-level data, store and share them with the same care as the source
+report.
 
 ### Monte Carlo
 

@@ -1,4 +1,4 @@
-![Strategy Analyser v1](assets/strategy-analyser-banner.png)
+![Strategy Analyser v1](analyser/assets/strategy-analyser-banner.png)
 
 **Agent-native API to analyse and construct portfolios of MT5 strategies and backtests.**
 
@@ -67,6 +67,22 @@ The API returns typed, eager, deterministic results. Human-facing example tables
 and reports in [`results/`](results/README.md) display numeric values to **2
 decimal places**.
 
+### Preferred analysis report
+
+When a strategy or portfolio is analysed without a more specific output format,
+the preferred user-facing result is one self-contained interactive HTML report.
+It contains the metrics, filters, equity/drawdown chart, monthly tables, trade
+analysis, and portfolio correlation heat map where applicable. The report can
+be opened directly in a browser without Python.
+
+- [Example equal-weight portfolio report](results/interactive-portfolio-report.html)
+- [Example single-strategy report](results/interactive-report.html)
+
+The report name can be set during generation with
+`InteractiveReportConfig(title="My report")`, or changed in-browser with
+**Edit name**. The browser edit is presentation-only and is preserved in the
+shareable URL fragment.
+
 Text and table examples:
 
 - [Metrics and ratios](results/analysis.md)
@@ -82,6 +98,7 @@ Text and table examples:
 - [Daily profit correlation table](results/daily-profit-correlation.csv)
 - [Trade-profit bar chart examples](results/trade-profit-bars/README.md)
 - [Monte Carlo p5/p50/p95 summary](results/monte-carlo-summary.md)
+- [Interactive single-report webpage](results/interactive-report.html)
 
 ### Example: returns broken down by month
 

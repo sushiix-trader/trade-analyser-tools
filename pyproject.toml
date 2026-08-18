@@ -17,6 +17,9 @@ dependencies = [
 [tool.setuptools.packages.find]
 include = ["analyser*"]
 
+[tool.setuptools.package-data]
+analyser = ["assets/*.png"]
+
 [project.optional-dependencies]
 test = ["coverage>=7"]
 charts = ["matplotlib>=3.7"]

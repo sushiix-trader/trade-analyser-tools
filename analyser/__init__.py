@@ -109,6 +109,13 @@ from .portfolio import (
     combine_analyses,
 )
 from .simulations import MonteCarloConfig, MonteCarloResult, run_monte_carlo, run_monte_carlo_file
+from .interactive import (
+    InteractiveReportConfig,
+    InteractiveReportServer,
+    render_interactive_report,
+    save_interactive_report,
+    serve_interactive_report,
+)
 
 __all__ = [
     "AccountPoint",
@@ -215,4 +222,9 @@ __all__ = [
     "load_report",
     "run_monte_carlo",
     "run_monte_carlo_file",
+    "InteractiveReportConfig",
+    "InteractiveReportServer",
+    "render_interactive_report",
+    "save_interactive_report",
+    "serve_interactive_report",
 ]

@@ -36,6 +36,12 @@ A deterministic operation that changes which completed positions or position
 sizes participate in an analysis view, such as a filter or what-if sizing.
 _Avoid_: live modification, execution
 
+**Interactive report**:
+A deterministic, self-contained HTML presentation of one eager single-report or
+portfolio result. It is a retrieval/export layer over the typed API; it does not
+parse MT5 markup or implement a competing metric engine in the browser.
+_Avoid_: live dashboard, trading terminal
+
 ## Period language
 
 **In-sample period**:
