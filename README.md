@@ -341,4 +341,4 @@ The full agent workflow and canonical API routing instructions are in
 ## License
 
 This project is released under the [MIT License](LICENSE). The current package
-version is **0.1.0**.
+version is **0.1.1**.

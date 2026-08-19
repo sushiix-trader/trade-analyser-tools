@@ -1299,7 +1299,7 @@ def combine_analyses(
         "timezone": timezone,
         "portfolio_config": config.to_dict(),
         "parser_version": "2",
-        "package_version": "0.1.0",
+        "package_version": "0.1.1",
     }
     return PortfolioAnalysisResult(
         members=tuple(member_results),

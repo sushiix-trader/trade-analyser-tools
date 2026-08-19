@@ -24,7 +24,7 @@ from .serialization import deterministic_json, to_primitive
 if TYPE_CHECKING:
     from .portfolio import PortfolioAnalysisResult, PortfolioConfig, PortfolioMember
 
-PACKAGE_VERSION = "0.1.0"
+PACKAGE_VERSION = "0.1.1"
 PARSER_VERSION = "2"
 
 

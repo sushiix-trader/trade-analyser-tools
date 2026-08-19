@@ -735,7 +735,7 @@ def _provenance(report: Report, config: AnalysisConfig) -> dict[str, Any]:
         "input_format": report.source_format,
         "source_filename": Path(report.source_file).name if report.source_file else None,
         "parser_version": "2",
-        "package_version": "0.1.0",
+        "package_version": "0.1.1",
         "timezone": report.timezone or config.timezone,
         "analysis_config": config.to_dict(),
     }
