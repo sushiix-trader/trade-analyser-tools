@@ -20,3 +20,12 @@ data/mt5_reports/*
 .env
 .env.*
 !.env.example
+# New ad-hoc result reports are local by default. Existing sanitized examples
+# already tracked in this directory remain versioned.
+results/*.html
+results/sample_reports/*.html
+!results/interactive-report.html
+!results/interactive-portfolio-report.html
+!results/sample_reports/example_strategy_a.html
+!results/sample_reports/example_strategy_b.html
+!results/sample_reports/example_strategy_c.html
