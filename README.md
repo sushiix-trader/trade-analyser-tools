@@ -1,4 +1,4 @@
-![Strategy Analyser v1](analyser/assets/strategy-analyser-banner.png)
+[![Interactive portfolio report preview](results/interactive-portfolio-report-preview.png)](results/interactive-portfolio-report.html)
 
 **Agent-native API to analyse and construct portfolios of MT5 strategies and backtests.**
 
