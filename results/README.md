@@ -59,8 +59,6 @@ Visual outputs:
 
 ![Equity and drawdown](equity-drawdown.png)
 
-![Rendered single-strategy interactive report](interactive-report-preview.png)
-
 ![Rendered equal-weight portfolio interactive report](interactive-portfolio-report-preview.png)
 
 ![Three-strategy portfolio equity and drawdown](portfolio-equity-drawdown.png)

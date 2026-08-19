@@ -497,6 +497,29 @@ result exposes max consecutive win/loss arrays and retained current-streak
 paths. Streaks use completed-position net profit: positive extends wins,
 negative extends losses, and zero resets both.
 
+### Default analysis response contract
+
+When the user asks to analyse a strategy or portfolio without requesting a
+narrower output, follow this response path:
+
+1. Resolve any required clarification before touching the report.
+2. Eagerly analyse through the canonical typed API (`analyze_file()` for one
+   report or `analyze_portfolio()` for multiple reports).
+3. Generate one self-contained interactive HTML report with
+   `save_interactive_report()` and return its path or accessible link.
+4. Give a concise summary of the main result and warnings, then suggest
+   relevant follow-up capabilities instead of writing a custom script. Typical
+   suggestions include long/short or time/session filters, in-sample versus
+   out-of-sample analysis, what-if sizing, portfolio combination and daily
+   profit correlation, equity/monthly/bar-chart exports, caching, and
+   deterministic Monte Carlo permutation/bootstrap analysis.
+
+Do not substitute a Markdown-only metric dump, a one-off chart, or a custom
+analysis script when the user has asked for a general report analysis. If the
+user explicitly asks for a table, chart, raw JSON/CSV, comparison, or Monte
+Carlo result, provide that requested typed API output in addition to or
+instead of the interactive report as appropriate.
+
 ## Contract guardrails
 
 - Accept MT5 single-run HTML/HTM and XML reports, paths, bytes, and file-like

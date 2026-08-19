@@ -146,17 +146,19 @@ The default dark-blue page contains:
   allocation and recombination;
 - a normalized SVG equity/drawdown chart on a white background. Click the
   `Values in %`/`Values in $` button to switch both axes together. The equity
-  panel marks and labels the initial balance, and drawdown is rendered in red,
-  with reconstructed/source curve choices, hover tooltips, sample-period
-  bands, and optional member curves;
+  panel marks and labels the initial balance. Member strategy traces are dotted,
+  drawdown traces use the matching strategy colours, and enabling member curves
+  starts the view in percentage mode. The chart also includes hover tooltips,
+  sample-period bands, and an optional portfolio-only toggle;
 - grouped trade analysis by opening/closing hour or day of week, with the
   selected profit measure on the y-axis and timing buckets on the x-axis;
 - a light-shaded, full-width year × Jan–Dec × YTD monthly return table with a
   separate maximum-intramonth-drawdown table stacked directly underneath it.
   Drawdown values are displayed as negative percentages, every defined cell is
   red with darker red indicating a larger drawdown, and the table has a
-  `Worst` annual column containing the year's most negative monthly value. It
-  has no YTD column or horizontal scrollbar;
+  `Worst` annual column containing the year's most negative monthly value. The
+  drawdown table has no YTD column; it fits within the desktop layout and becomes
+  a swipeable table on narrow screens.
 - an **Edit name** control in the browser. The title is presentation metadata,
   so users can rename the report without changing any analysis. The edited
   name is stored in the URL fragment, survives reloads, is included in JSON

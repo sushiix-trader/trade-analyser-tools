@@ -85,8 +85,6 @@ shareable URL fragment.
 
 Rendered previews of the actual HTML pages:
 
-[![Rendered single-strategy report](results/interactive-report-preview.png)](results/interactive-report.html)
-
 [![Rendered equal-weight portfolio report](results/interactive-portfolio-report-preview.png)](results/interactive-portfolio-report.html)
 
 Text and table examples:

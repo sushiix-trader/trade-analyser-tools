@@ -716,7 +716,8 @@ p { color: var(--muted); }
 .chart .initial-line { stroke: rgba(36,59,83,.72); stroke-dasharray: 6 4; stroke-width: 1.2; }
 .chart .initial-label { fill: #243b53; font-size: 10px; font-weight: 700; }
 .chart .equity-line { fill: none; stroke-width: 2.35; vector-effect: non-scaling-stroke; }
-.chart .drawdown-line { fill: none; stroke: #ef4444; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.chart .drawdown-line { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.chart .member-equity-line, .chart .member-drawdown-line { stroke-dasharray: 7 5; }
 .chart .drawdown-axis-label { fill: #dc2626; }
 .chart .hover-line { stroke: rgba(36,59,83,.72); stroke-dasharray: 3 3; pointer-events: none; }
 .chart-tooltip { position: fixed; display: none; z-index: 20; pointer-events: none; background: #06111f; border: 1px solid var(--accent); border-radius: 8px; padding: .5rem .65rem; box-shadow: var(--shadow); font-size: .78rem; white-space: nowrap; }
@@ -746,6 +747,7 @@ p { color: var(--muted); }
 .monthly-table-wrap { width: 100%; overflow: hidden; }
 .monthly-drawdown-table { width: 100%; table-layout: fixed; }
 .monthly-drawdown-table th, .monthly-drawdown-table td { white-space: normal; overflow-wrap: anywhere; }
+.mobile-only { display: none; }
 .monthly-table .positive { background: rgba(66,217,160,.12); color: #a1f2d3; }
 .monthly-table .negative { background: rgba(255,109,131,.13); color: #ffabb9; }
 .monthly-table .zero, .undefined { background: rgba(141,165,196,.08); color: var(--muted); }
@@ -762,6 +764,42 @@ p { color: var(--muted); }
 .empty { color: var(--muted); padding: 1rem 0; }
 .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
 @media (max-width: 840px) { .two-col { grid-template-columns: 1fr; } .toolbar .meta { margin-left: 0; width: 100%; } .shell { padding-left: .75rem; padding-right: .75rem; } .toolbar { margin-left: -.75rem; margin-right: -.75rem; padding-left: .75rem; padding-right: .75rem; } }
+@media (max-width: 640px) {
+  html, body { overflow-x: hidden; }
+  .shell { padding-left: .65rem; padding-right: .65rem; }
+  .hero { padding-top: 1.25rem; }
+  .brand-logo { border-radius: 10px; margin-bottom: 1rem; }
+  .title-row { min-width: 0; flex-direction: column; align-items: flex-start; }
+  .title-row h1 { width: 100%; min-width: 0; font-size: clamp(1.65rem, 8vw, 2.25rem); overflow-wrap: anywhere; }
+  .title-edit-button { margin-top: .15rem; }
+  .toolbar { min-width: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); margin-left: -.65rem; margin-right: -.65rem; padding-left: .65rem; padding-right: .65rem; gap: .45rem; }
+  .toolbar > .control-label { min-width: 0; align-self: center; }
+  .toolbar > select { width: 100%; min-width: 0; max-width: 100%; }
+  .toolbar > button, .toolbar > .filter-chip { width: max-content; max-width: 100%; justify-self: start; }
+  .toolbar > .meta { grid-column: 1 / -1; }
+  .section { margin: 1rem 0; }
+  .section-heading { min-width: 0; align-items: flex-start; }
+  .section-heading > .small { flex-basis: 100%; }
+  .panel { min-width: 0; padding: .72rem; border-radius: 12px; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+  .metric { min-width: 0; min-height: 78px; padding: .58rem; }
+  .metric .label-row, .metric .label, .metric .value { min-width: 0; overflow-wrap: anywhere; }
+  .metric .value { font-size: 1rem; }
+  .mobile-only { display: inline; }
+  .monthly-table-wrap, .matrix-wrap, .chart-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .monthly-table-wrap { margin: 0 -.72rem; padding: 0 .72rem .35rem; }
+  .monthly-table { width: max-content; min-width: 760px; table-layout: auto; }
+  .monthly-table th, .monthly-table td { min-width: 3.8rem; white-space: nowrap; }
+  .monthly-table th:first-child, .monthly-table td:first-child { position: sticky; left: 0; z-index: 2; min-width: 4.5rem; background: var(--panel-2); box-shadow: 3px 0 5px rgba(0,0,0,.18); }
+  .monthly-table th:last-child, .monthly-table td:last-child { position: sticky; right: 0; z-index: 2; min-width: 4.5rem; background: var(--panel-2); box-shadow: -3px 0 5px rgba(0,0,0,.18); }
+  .monthly-table thead th:first-child, .monthly-table thead th:last-child { z-index: 3; }
+  .matrix-wrap .data-table { min-width: 760px; }
+  .nav { min-width: 0; }
+  .nav a { max-width: 100%; }
+  .pagination { align-items: flex-start; flex-direction: column; }
+  .title-editor { align-items: stretch; }
+  .title-editor label, .title-editor input { width: 100%; }
+}
 </style>
 </head>
 <body>
@@ -802,7 +840,6 @@ p { color: var(--muted); }
 
     <section class="section" id="equity">
       <div class="section-heading"><h2>Equity & drawdown</h2><div class="controls">
-        <label class="control-label" for="curveSelect">Curve</label><select id="curveSelect"></select>
         <button id="valueMode" type="button" aria-label="Toggle equity and drawdown values between percentage and currency">Values in %</button>
         <label class="control-label"><input id="memberToggle" type="checkbox"> show strategies</label>
         <label class="control-label"><input id="periodToggle" type="checkbox"> show sample periods</label>
@@ -822,9 +859,9 @@ p { color: var(--muted); }
     </section>
 
     <section class="section" id="monthly">
-      <div class="section-heading"><h2>Monthly performance</h2><span class="small">Percentages; two decimals; YTD is compounded.</span></div>
+      <div class="section-heading"><h2>Monthly performance</h2><span class="small">Percentages; two decimals; YTD is compounded. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyTable"></div></div>
-      <div class="section-heading"><h2>Monthly drawdown</h2><span class="small">Maximum intramonth drawdown; Worst is the annual minimum.</span></div>
+      <div class="section-heading"><h2>Monthly drawdown</h2><span class="small">Maximum intramonth drawdown; Worst is the annual minimum. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyDrawdownTable"></div></div>
     </section>
 
@@ -862,7 +899,7 @@ p { color: var(--muted); }
     curve: "primary",
     valueMode: "percent",
     drawdownMode: "percent",
-    showMembers: false,
+    showMembers: report.kind === "portfolio",
     showPeriods: true,
     grouping: "open_hour",
     measure: "net_profit",
@@ -958,10 +995,9 @@ p { color: var(--muted); }
     const params = new URLSearchParams(location.hash.slice(1));
     if (["all", "long", "short"].includes(params.get("direction"))) state.direction = params.get("direction");
     if (report.kind === "portfolio" && (params.get("data") === "portfolio" || report.variants.all.members?.[params.get("data")])) state.data = params.get("data");
-    if (["primary", "reconstructed", "source_equity", "source_balance"].includes(params.get("curve"))) state.curve = params.get("curve");
     if (["percent", "money"].includes(params.get("equity"))) state.valueMode = params.get("equity");
     state.drawdownMode = state.valueMode;
-    state.showMembers = params.get("members") === "1";
+    state.showMembers = params.has("members") ? params.get("members") === "1" : report.kind === "portfolio";
     if (params.get("title")) applyTitle(params.get("title"));
     const hashStart = Number(params.get("start"));
     const hashEnd = Number(params.get("end"));
@@ -1001,13 +1037,6 @@ p { color: var(--muted); }
     if (key === "source_equity") return view.source_equity;
     if (key === "source_balance") return view.source_balance;
     return view.equity;
-  }
-  function curveOptions(view) {
-    const options = [["primary", "Primary"]];
-    if (view.balance) options.push(["reconstructed", "Reconstructed"]);
-    if (view.source_equity) options.push(["source_equity", "Source equity"]);
-    if (view.source_balance) options.push(["source_balance", "Source balance"]);
-    return options;
   }
   function valueAt(curve, index, mode) {
     const value = Number(curve.values[index]);
@@ -1079,21 +1108,28 @@ p { color: var(--muted); }
   function renderEquity() {
     const view = currentView();
     state.drawdownMode = state.valueMode;
-    const curveSelect = $("curveSelect");
-    curveSelect.innerHTML = curveOptions(view).map(([key, label]) => `<option value='${key}'>${label}</option>`).join("");
-    if (!curveOptions(view).some(([key]) => key === state.curve)) state.curve = "primary";
-    curveSelect.value = state.curve;
+    state.curve = "primary";
     $("valueMode").textContent = `Values in ${state.valueMode === "percent" ? "%" : currencyUnit(view.currency)}`;
     $("valueMode").setAttribute("aria-pressed", state.valueMode === "money" ? "true" : "false");
     $("periodToggle").checked = state.showPeriods;
     const curve = getCurve(view, state.curve);
     if (!curve || !curve.timestamps.length) { $("equityChart").innerHTML = "<div class='empty'>No equity observations are available for this view.</div>"; $("equityLegend").innerHTML = ""; return; }
-    const selected = [{key: "portfolio", label: displayName(), curve, color: COLORS[0]}];
-    if (report.kind === "portfolio" && state.data === "portfolio" && state.showMembers) {
+    const showMemberCurves = report.kind === "portfolio" && state.data === "portfolio" && state.showMembers;
+    const memberOnlyMoney = showMemberCurves && state.valueMode === "money";
+    const selected = memberOnlyMoney ? [] : [{key: "portfolio", label: displayName(), curve, color: COLORS[0]}];
+    if (showMemberCurves) {
       Object.values(currentVariant().members || {}).forEach((member, index) => {
-        const memberCurve = state.valueMode === "money" ? member.allocated_equity : member.allocated_equity;
+        const memberCurve = member.analysis?.allocated_equity;
         if (memberCurve) selected.push({key: `member-${member.member_key}`, label: member.strategy_name, curve: memberCurve, color: COLORS[(index + 1) % COLORS.length]});
       });
+    }
+    if (!selected.length) {
+      if (memberOnlyMoney) {
+        $("equityChart").innerHTML = "<div class='empty'>Individual strategy equity curves are unavailable for this portfolio view.</div>";
+        $("equityLegend").innerHTML = "";
+        return;
+      }
+      selected.push({key: "portfolio", label: displayName(), curve, color: COLORS[0]});
     }
     const allTimes = selected.flatMap((item) => item.curve.timestamps.map((timestamp) => new Date(timestamp).getTime()));
     const fullStart = Math.min(...allTimes), fullEnd = Math.max(...allTimes);
@@ -1101,7 +1137,8 @@ p { color: var(--muted); }
     const end = fullStart + (fullEnd - fullStart) * state.windowEnd;
     const left = 118, right = 1110, top = 28, equityBottom = 202, ddTop = 260, ddBottom = 408;
     const equityValues = selected.flatMap((item) => item.curve.values.map((_, index) => valueAt(item.curve, index, state.valueMode)));
-    const initialMoney = Number(curve.initial_value) || Number(curve.values[0]) || 0;
+    const initialCurve = memberOnlyMoney ? selected[0].curve : curve;
+    const initialMoney = Number(initialCurve.initial_value) || Number(initialCurve.values[0]) || 0;
     const initialAxisValue = state.valueMode === "money" ? initialMoney : 0;
     let min = Math.min(initialAxisValue, ...equityValues), max = Math.max(initialAxisValue, ...equityValues);
     if (min === max) { max = initialAxisValue + 1; }
@@ -1125,18 +1162,21 @@ p { color: var(--muted); }
     [0, .5, 1].forEach((fraction) => { const y = ddBottom - fraction * (ddBottom-ddTop); const value = ddMin + fraction*(ddMax-ddMin); svg.push(`<line class='grid' x1='${left}' x2='${right}' y1='${y}' y2='${y}'/><text x='${left-10}' y='${y+4}' text-anchor='end'>${esc(axisLabel(value, state.valueMode, view.currency))}</text>`); });
     const zeroY = ddBottom - (0-ddMin)/(ddMax-ddMin || 1)*(ddBottom-ddTop);
     const initialY = equityBottom - (initialAxisValue-min)/(max-min || 1)*(equityBottom-top);
-    const initialLabel = `Initial balance: ${axisMoneyLabel(initialMoney, view.currency)}${state.valueMode === "percent" ? " (0.00%)" : ""}`;
+    const initialLabel = `${memberOnlyMoney ? "Initial strategy allocation" : "Initial balance"}: ${axisMoneyLabel(initialMoney, view.currency)}${state.valueMode === "percent" ? " (0.00%)" : ""}`;
     svg.push(`<line class='zero' x1='${left}' x2='${right}' y1='${zeroY}' y2='${zeroY}'/>`);
     svg.push(`<line class='initial-line' x1='${left}' x2='${right}' y1='${initialY}' y2='${initialY}'/><text class='initial-label' x='${left+6}' y='${Math.max(top+12, initialY-6)}'>${esc(initialLabel)}</text>`);
     svg.push(`<line class='axis' x1='${left}' x2='${right}' y1='${equityBottom}' y2='${equityBottom}'/><line class='axis' x1='${left}' x2='${right}' y1='${ddBottom}' y2='${ddBottom}'/>`);
     svg.push(`<text x='${left}' y='17'>Equity</text><text class='drawdown-axis-label' x='${left}' y='250'>Drawdown</text>`);
     selected.forEach((item) => {
       const hidden = state.hiddenCurves[item.key];
+      const isMember = item.key.startsWith("member-");
       const values = item.curve.values.map((_, index) => valueAt(item.curve, index, state.valueMode));
       const dds = drawdownValues(item.curve, state.drawdownMode);
       const visibility = hidden ? "display:none" : "";
-      svg.push(`<path class='equity-line' data-series='${esc(item.key)}' d='${pathFor(item.curve, values, start, end, left, right, top, equityBottom, min, max)}' stroke='${item.color}' style='${visibility}'/>`);
-      svg.push(`<path class='drawdown-line' data-series='${esc(item.key)}' d='${pathFor(item.curve, dds, start, end, left, right, ddTop, ddBottom, ddMin, ddMax)}' style='${visibility}' opacity='.8'/>`);
+      const equityClass = isMember ? "equity-line member-equity-line" : "equity-line";
+      const drawdownClass = isMember ? "drawdown-line member-drawdown-line" : "drawdown-line";
+      svg.push(`<path class='${equityClass}' data-series='${esc(item.key)}' d='${pathFor(item.curve, values, start, end, left, right, top, equityBottom, min, max)}' stroke='${item.color}' style='${visibility}'/>`);
+      svg.push(`<path class='${drawdownClass}' data-series='${esc(item.key)}' d='${pathFor(item.curve, dds, start, end, left, right, ddTop, ddBottom, ddMin, ddMax)}' stroke='${item.color}' style='${visibility}' opacity='.8'/>`);
     });
     svg.push(`<line id='chartHoverLine' class='hover-line' x1='${left}' x2='${left}' y1='${top}' y2='${ddBottom}' style='display:none'/><rect id='chartHover' x='${left}' y='${top}' width='${right-left}' height='${ddBottom-top}' fill='transparent'/>`);
     svg.push(`</svg>`);
@@ -1145,17 +1185,19 @@ p { color: var(--muted); }
     document.querySelectorAll("[data-legend]").forEach((button) => button.addEventListener("click", () => { const key = button.dataset.legend; state.hiddenCurves[key] = !state.hiddenCurves[key]; renderEquity(); }));
     const hover = $("chartHover");
     const line = $("chartHoverLine");
+    const hoverItem = selected[0];
+    const hoverCurve = hoverItem.curve;
     hover.addEventListener("mousemove", (event) => {
       const rect = hover.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
       const timestamp = start + ratio * (end - start);
-      const visibleIndexes = curve.timestamps.map((value, index) => ({value, index})).filter((item) => { const time = new Date(item.value).getTime(); return time >= start && time <= end; });
+      const visibleIndexes = hoverCurve.timestamps.map((value, index) => ({value, index})).filter((item) => { const time = new Date(item.value).getTime(); return time >= start && time <= end; });
       if (!visibleIndexes.length) return;
       const primaryIndex = visibleIndexes.reduce((best, item) => Math.abs(new Date(item.value).getTime()-timestamp) < Math.abs(new Date(best.value).getTime()-timestamp) ? item : best).index;
-      const x = xFor(curve.timestamps[primaryIndex], start, end, left, right);
+      const x = xFor(hoverCurve.timestamps[primaryIndex], start, end, left, right);
       line.setAttribute("x1", x); line.setAttribute("x2", x); line.style.display = "block";
       const tip = $("chartTooltip");
-      tip.innerHTML = `<b>${esc(isoTime(curve.timestamps[primaryIndex]))}</b><br>${esc(displayName())}: ${esc(fmt(valueAt(curve, primaryIndex, state.valueMode), state.valueMode === "money" ? "money" : "number"))}`;
+      tip.innerHTML = `<b>${esc(isoTime(hoverCurve.timestamps[primaryIndex]))}</b><br>${esc(hoverItem.label)}: ${esc(fmt(valueAt(hoverCurve, primaryIndex, state.valueMode), state.valueMode === "money" ? "money" : "number"))}`;
       tip.style.display = "block"; tip.style.left = `${event.clientX + 14}px`; tip.style.top = `${event.clientY + 14}px`;
     });
     hover.addEventListener("mouseleave", () => { line.style.display = "none"; $("chartTooltip").style.display = "none"; });
@@ -1277,10 +1319,17 @@ p { color: var(--muted); }
     $("reportTitleInput").addEventListener("keydown", (event) => { if (event.key === "Enter") $("saveTitleButton").click(); if (event.key === "Escape") $("cancelTitleButton").click(); });
     $("dataSelect").addEventListener("change", (event) => { state.data = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
     $("directionSelect").addEventListener("change", (event) => { state.direction = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
-    $("resetButton").addEventListener("click", () => { state.direction = "all"; state.data = report.default_data; state.curve = "primary"; state.valueMode = "percent"; state.drawdownMode = "percent"; state.showMembers = false; state.showPeriods = true; state.windowStart = 0; state.windowEnd = 1; state.page = 1; state.search = ""; $("tradeSearch").value = ""; rerender(); });
-    $("curveSelect").addEventListener("change", (event) => { state.curve = event.target.value; renderEquity(); updateHash(); });
+    $("resetButton").addEventListener("click", () => { state.direction = "all"; state.data = report.default_data; state.curve = "primary"; state.valueMode = "percent"; state.drawdownMode = "percent"; state.showMembers = report.kind === "portfolio"; state.showPeriods = true; state.windowStart = 0; state.windowEnd = 1; state.page = 1; state.search = ""; $("tradeSearch").value = ""; rerender(); });
     $("valueMode").addEventListener("click", () => { state.valueMode = state.valueMode === "percent" ? "money" : "percent"; state.drawdownMode = state.valueMode; renderEquity(); updateHash(); });
-    $("memberToggle").addEventListener("change", (event) => { state.showMembers = event.target.checked; renderEquity(); updateHash(); });
+    $("memberToggle").addEventListener("change", (event) => {
+      state.showMembers = event.target.checked;
+      if (state.showMembers && report.kind === "portfolio") {
+        state.valueMode = "percent";
+        state.drawdownMode = "percent";
+      }
+      renderEquity();
+      updateHash();
+    });
     $("periodToggle").addEventListener("change", (event) => { state.showPeriods = event.target.checked; renderEquity(); updateHash(); });
     $("panLeft").addEventListener("click", () => panChart(-.5)); $("panRight").addEventListener("click", () => panChart(.5));
     $("zoomIn").addEventListener("click", () => adjustZoom(.7)); $("zoomOut").addEventListener("click", () => adjustZoom(1.4));
