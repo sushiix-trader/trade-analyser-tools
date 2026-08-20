@@ -27,6 +27,7 @@ trade-analyser-gui = "gui.app:main"
 test = ["coverage>=7"]
 charts = ["matplotlib>=3.7"]
 gui = ["matplotlib>=3.7"]
+packaging = ["pyinstaller>=6.0"]
 
 [tool.coverage.run]
 branch = true

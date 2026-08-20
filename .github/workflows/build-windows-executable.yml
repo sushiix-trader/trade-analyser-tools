@@ -1,0 +1,59 @@
+name: Build Windows GUI executable
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build portable Windows executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project and packaging dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[gui,packaging]"
+
+      - name: Build one-file executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm packaging/windows/trade-analyser-gui.spec
+
+      - name: Verify executable exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/trade-analyser-gui.exe")) {
+            throw "PyInstaller did not produce dist/trade-analyser-gui.exe"
+          }
+          Get-Item "dist/trade-analyser-gui.exe" | Format-List Name,Length,FullName
+
+      - name: Write SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "dist/trade-analyser-gui.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  trade-analyser-gui.exe" | Out-File "dist/SHA256SUMS.txt" -Encoding ascii
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-analyser-gui-windows
+          path: |
+            dist/trade-analyser-gui.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

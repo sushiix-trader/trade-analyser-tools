@@ -174,3 +174,69 @@ ruff check analyser gui tests
 The GUI workflow tests run headlessly. They verify that the HTML, serializers,
 and Monte Carlo artifacts are produced through the public analyser seams; they
 do not require a display server.
+
+## Windows executable for end users
+
+The repository includes a PyInstaller specification at
+`packaging/windows/trade-analyser-gui.spec`. It creates a portable, one-file
+Windows executable. End users do not need Python, Tkinter, Matplotlib, or this
+repository installed when using the built `.exe`.
+
+### Build locally on Windows
+
+A Windows build must be performed on Windows. From PowerShell at the repository
+root:
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -e ".[gui,packaging]"
+.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm packaging/windows/trade-analyser-gui.spec
+```
+
+The executable will be written to:
+
+```text
+dist\trade-analyser-gui.exe
+```
+
+Run it by double-clicking the file or from PowerShell:
+
+```powershell
+.\dist\trade-analyser-gui.exe
+```
+
+The build uses `console=False`, so end users get a normal desktop window rather
+than an additional console window. Generated reports are written to the output
+folder selected inside the application.
+
+### Build through GitHub Actions
+
+The repository also contains
+`.github/workflows/build-windows-executable.yml`. It runs on `windows-latest`
+and uploads `trade-analyser-gui.exe` as a workflow artifact.
+
+To build it manually:
+
+1. Open the repository on GitHub.
+2. Open **Actions**.
+3. Select **Build Windows GUI executable**.
+4. Click **Run workflow** and choose the `feature/desktop-gui` branch or the
+   branch containing the packaging changes.
+5. Download the `trade-analyser-gui-windows` artifact from the completed run.
+
+The workflow also runs automatically when a version tag such as `v1.1.0` is
+pushed. The executable is currently an unsigned build; Windows SmartScreen may
+show a warning until the application is distributed with a code-signing
+certificate.
+
+### Distribution notes
+
+- Build the executable on Windows; do not try to copy a Linux executable and
+  rename it to `.exe`.
+- Distribute the generated `.exe` over HTTPS or as a GitHub Actions/Release
+  artifact, and publish a SHA-256 checksum for users who want to verify it.
+- The application does not connect to MetaTrader, place trades, or upload
+  reports. It processes the selected report locally and writes local outputs.
+- The executable does not include private reports or repository sample data;
+  those are selected by the user at runtime.
