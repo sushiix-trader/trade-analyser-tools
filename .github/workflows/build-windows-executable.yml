@@ -3,6 +3,8 @@ name: Build Windows GUI executable
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "feature/desktop-gui"
     tags:
       - "v*"
 
