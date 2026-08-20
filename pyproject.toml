@@ -15,14 +15,18 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["analyser*"]
+include = ["analyser*", "gui*"]
 
 [tool.setuptools.package-data]
 analyser = ["assets/*.png"]
 
+[project.scripts]
+trade-analyser-gui = "gui.app:main"
+
 [project.optional-dependencies]
 test = ["coverage>=7"]
 charts = ["matplotlib>=3.7"]
+gui = ["matplotlib>=3.7"]
 
 [tool.coverage.run]
 branch = true

@@ -2,7 +2,7 @@
 
 **Agent-native API to analyse and construct portfolios of MT5 strategies and backtests.**
 
-**COMING SOON: GUI for users to interact with.**
+**Desktop GUI available in [`gui/`](gui/).**
 
 [Follow my X for more systematic trading strategies and tricks.](https://x.com/SystematicEdge1)
 
@@ -10,7 +10,8 @@
 
 A fast, deterministic Python library for analysing MetaTrader 5 Strategy Tester
 reports. It is an analysis platform only: there is no live execution, order
-placement, or GUI in the current release.
+placement, or trading automation. The optional desktop GUI is a report
+presentation front end, not a trading terminal.
 
 **Agent-native API. No need to write code yourself: describe or ask your questions
 in Claude, Codex, or another capable agent, and it can calculate them for you.**
@@ -24,8 +25,8 @@ own versions of them.
 This project is an **Agent-first** analysis framework: natural-language requests
 are routed to typed, deterministic APIs instead of requiring the user or agent
 to write one-off calculation scripts. The Python API is the canonical layer;
-charts, reports, caching, Telegram delivery, and the future GUI sit on top of
-the same reproducible analysis results.
+charts, reports, caching, Telegram delivery, and the optional GUI sit on top
+of the same reproducible analysis results.
 
 ## Questions this API can answer
 
@@ -47,6 +48,8 @@ cd trade-analyser-tools && pip install -e ".[charts]"
 ```
 
 See the [API usage guide](docs/usage.md) for the complete workflow.
+
+For the desktop application, see the [GUI guide](gui/README.md).
 
 ## Inputs
 
