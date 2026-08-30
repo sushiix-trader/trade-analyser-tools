@@ -140,11 +140,25 @@ def run_analysis(config: GuiRunConfig) -> GuiRunResult:
     result = analyze_file(source, config.analysis_config)
     warnings.extend(_diagnostic_messages(result.warnings))
 
+    monte_carlo_result: MonteCarloResult | None = None
+    monte_carlo_summary_path: Path | None = None
+    monte_carlo_json_path: Path | None = None
+    monte_carlo_chart_path: Path | None = None
+    if config.monte_carlo is not None:
+        monte_carlo_config = _path_config_if_needed(
+            config.monte_carlo,
+            generate_chart=config.generate_monte_carlo_chart,
+        )
+        # Use the canonical report already held by AnalysisResult.  This is
+        # the public parsed-report seam and avoids a second file parse.
+        monte_carlo_result = run_monte_carlo(result.report, monte_carlo_config)
+
     report_path = output_dir / f"{stem}-interactive-report.html"
     save_interactive_report(
         result,
         report_path,
         InteractiveReportConfig(title=title),
+        monte_carlo=monte_carlo_result,
     )
 
     analysis_json_path = output_dir / f"{stem}-analysis.json"
@@ -162,19 +176,7 @@ def run_analysis(config: GuiRunConfig) -> GuiRunResult:
             warnings,
         )
 
-    monte_carlo_result: MonteCarloResult | None = None
-    monte_carlo_summary_path: Path | None = None
-    monte_carlo_json_path: Path | None = None
-    monte_carlo_chart_path: Path | None = None
-    if config.monte_carlo is not None:
-        monte_carlo_config = _path_config_if_needed(
-            config.monte_carlo,
-            generate_chart=config.generate_monte_carlo_chart,
-        )
-        # Use the canonical report already held by AnalysisResult.  This is
-        # the public parsed-report seam and avoids a second file parse.
-        monte_carlo_result = run_monte_carlo(result.report, monte_carlo_config)
-
+    if monte_carlo_result is not None:
         monte_carlo_summary_path = output_dir / f"{stem}-monte-carlo-summary.json"
         monte_carlo_summary_path.write_text(
             _pretty_json(monte_carlo_result.summary()),

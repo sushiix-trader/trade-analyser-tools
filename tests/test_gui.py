@@ -46,7 +46,11 @@ class GuiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(run.report_path.name, "fixture-interactive-report.html")
             self.assertTrue(run.report_path.exists())
-            self.assertIn("<!doctype html>", run.report_path.read_text(encoding="utf-8").lower())
+            report_html = run.report_path.read_text(encoding="utf-8")
+            self.assertIn("<!doctype html>", report_html.lower())
+            self.assertIn('href="#monte-carlo"', report_html)
+            self.assertIn("Monte Carlo robustness", report_html)
+            self.assertIn("P95 max drawdown", report_html)
             self.assertTrue(run.analysis_json_path.exists())
             self.assertTrue(run.analysis_markdown_path.exists())
             self.assertEqual(json.loads(run.analysis_json_path.read_text()), run.analysis_result.to_dict())
@@ -86,6 +90,7 @@ class GuiWorkflowTests(unittest.TestCase):
             self.assertIsNone(run.monte_carlo_json_path)
             self.assertIsNone(run.monte_carlo_chart_path)
             self.assertTrue(run.report_path.exists())
+            self.assertIn("Monte Carlo was not run for this report", run.report_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

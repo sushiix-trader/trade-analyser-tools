@@ -68,7 +68,9 @@ trade-analyser-gui
    optionally generate the path chart.
 5. Click **Generate report**. The GUI performs the work off the Tkinter event
    loop, opens the generated HTML report in the default browser, and lists all
-   output paths in the window.
+   output paths in the window. When Monte Carlo is enabled, the opened report
+   includes a separate **Monte Carlo** tab with distribution summaries and a
+   retained-path chart.
 
 The browser report is a self-contained HTML file. It can be opened and shared
 without running Python or starting a server.
@@ -109,7 +111,10 @@ as:
 | `my-strategy-monte-carlo-paths.png` | Optional simulated paths, intervals, drawdown, and streak panels |
 
 Monte Carlo files are created only when the option is enabled. PNG files are
-created only when the optional chart dependency is available.
+created only when the optional chart dependency is available. The interactive
+HTML report always contains a Monte Carlo tab near the end; Warnings & provenance
+remains the final section. It explains when no simulation was supplied and renders
+the results when the option is enabled.
 
 The interactive HTML report contains the platform's existing report views,
 including metrics, monthly performance, monthly drawdown, equity/drawdown,

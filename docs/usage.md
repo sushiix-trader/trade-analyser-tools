@@ -106,6 +106,9 @@ size limit, and add malicious-XML regression tests.
 The main report workflow can turn one MT5 HTML/XML report into one self-contained
 webpage. The page is generated from the eager typed result, so the browser is a
 retrieval and presentation layer rather than a second metric implementation.
+When a `MonteCarloResult` is supplied, the same page adds a dedicated Monte Carlo
+tab near the end of the report, immediately before the final Warnings & provenance
+section, with percentile summaries and any retained simulated paths.
 
 ```python
 from analyser import (
@@ -128,6 +131,14 @@ save_interactive_report(
 
 # You can also render an already eager result without reparsing it.
 html = render_interactive_report(result)
+
+# Attach an already-computed simulation to the report's Monte Carlo tab.
+from analyser import MonteCarloConfig, run_monte_carlo
+simulation = run_monte_carlo(
+    result.report,
+    MonteCarloConfig(iterations=10_000, method="permutation", seed=42, retain_paths=True, path_count=500),
+)
+html = render_interactive_report(result, monte_carlo=simulation)
 
 # Optional local preview; this returns immediately and binds to localhost.
 server = serve_interactive_report(result)
@@ -166,6 +177,12 @@ The default dark-blue page contains:
 - a filterable, sortable, paginated completed-position table; and
 - a daily realized-profit correlation table for portfolios, plus warnings,
   validation, provenance, and deterministic CSV/JSON/SVG/PNG exports.
+- an optional Monte Carlo tab near the end with probability of ruin, P5/median/P95/mean/worst
+  distributions for returns, equity, drawdown, and streaks, plus a retained-path
+  percentile chart when the simulation was run with path retention enabled.
+
+The Monte Carlo tab describes the all-trades simulation supplied by the caller;
+changing the report's long/short or portfolio-member view does not rerun it.
 
 Single-report correlation is intentionally shown as “not applicable”. The page
 embeds only canonical normalized analysis data and completed positions. Original

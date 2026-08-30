@@ -13,6 +13,7 @@ from analyser import (
     AnalysisConfig,
     AnalyzedPortfolioMember,
     InteractiveReportConfig,
+    MonteCarloConfig,
     PortfolioConfig,
     PortfolioMember,
     Report,
@@ -22,6 +23,7 @@ from analyser import (
     analyze_portfolio,
     combine_analyses,
     render_interactive_report,
+    run_monte_carlo,
     save_interactive_report,
     serve_interactive_report,
 )
@@ -161,6 +163,72 @@ class InteractiveReportTests(unittest.TestCase):
         self.assertIn("<title>My review portfolio</title>", page)
         self.assertIn('<h1 id="reportTitle">My review portfolio</h1>', page)
         self.assertEqual(self._payload(page)["variants"]["all"]["metrics"]["total_trades"], 4)
+
+    def test_monte_carlo_is_embedded_in_a_dedicated_report_tab(self) -> None:
+        simulation = run_monte_carlo(
+            self.result.report,
+            MonteCarloConfig(
+                iterations=8,
+                seed=7,
+                retain_paths=True,
+                path_count=4,
+            ),
+        )
+
+        first = render_interactive_report(self.result, monte_carlo=simulation)
+        second = render_interactive_report(self.result, monte_carlo=simulation)
+
+        self.assertEqual(first, second)
+        self.assertIn('href="#monte-carlo"', first)
+        self.assertIn('id="monteCarloPanel"', first)
+        self.assertIn("Monte Carlo robustness", first)
+        self.assertIn("P95 max drawdown", first)
+        self.assertIn("monteCarloChart", first)
+        self.assertNotIn("id=\"monteCarloMeta\"", first)
+        self.assertNotIn("class='mc-config'", first)
+        self.assertNotIn("permutation sampling", first)
+        payload = self._payload(first)
+        monte_carlo = payload["monte_carlo"]
+        self.assertIsNotNone(monte_carlo)
+        self.assertEqual(monte_carlo["summary"]["iterations"], 8)
+        self.assertEqual(monte_carlo["summary"]["trade_count"], 4)
+        self.assertEqual(monte_carlo["summary"]["path_count"], 4)
+        self.assertEqual(monte_carlo["scope"], "strategy")
+        self.assertEqual(len(monte_carlo["equity_paths"]), 4)
+        self.assertEqual(len(monte_carlo["winning_streak_paths"]), 4)
+
+    def test_report_without_monte_carlo_keeps_tab_available_with_guidance(self) -> None:
+        page = render_interactive_report(self.result)
+
+        self.assertIn('href="#monte-carlo"', page)
+        self.assertIn("Monte Carlo was not run for this report", page)
+
+    def test_warnings_and_provenance_are_the_last_section_and_navigation_tab(self) -> None:
+        page = render_interactive_report(self.result)
+        nav = page.split('<nav class="nav"', 1)[1].split('</nav>', 1)[0]
+
+        self.assertGreater(nav.index('href="#audit"'), nav.index('href="#monte-carlo"'))
+        self.assertTrue(nav.rstrip().endswith('href="#audit">Warnings & provenance</a>'))
+        self.assertGreater(
+            page.index('<section class="section" id="audit">'),
+            page.index('<section class="section" id="monte-carlo">'),
+        )
+        self.assertEqual(
+            page.rfind('<section class="section"'),
+            page.index('<section class="section" id="audit">'),
+        )
+
+    def test_monte_carlo_table_keeps_mobile_scroller_inside_the_panel(self) -> None:
+        simulation = run_monte_carlo(
+            self.result.report,
+            MonteCarloConfig(iterations=8, seed=7, retain_paths=True, path_count=4),
+        )
+        page = render_interactive_report(self.result, monte_carlo=simulation)
+        mobile_css = page.split("@media (max-width: 640px) {", 1)[1].split("</style>", 1)[0]
+
+        self.assertIn(".mc-table { width: 100%; min-width: 0; max-width: 100%; }", mobile_css)
+        self.assertIn(".mc-table .data-table { width: max-content; min-width: 720px; }", mobile_css)
+        self.assertNotIn(".mc-table { min-width: 720px; }", mobile_css)
 
     def test_privacy_controls_can_explicitly_include_identifiers_but_not_by_default(self) -> None:
         page = render_interactive_report(

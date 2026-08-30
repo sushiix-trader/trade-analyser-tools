@@ -34,6 +34,7 @@ from .portfolio import (
     combine_analyses,
 )
 from .serialization import to_primitive
+from .simulations import MonteCarloResult
 from .trade_profit import TradeProfitAnalysis, TradeProfitGrouping
 
 
@@ -112,6 +113,7 @@ def render_interactive_report(
     config: InteractiveReportConfig | None = None,
     *,
     analysis_config: AnalysisConfig | None = None,
+    monte_carlo: MonteCarloResult | None = None,
 ) -> str:
     """Return one deterministic, self-contained interactive report page.
 
@@ -120,11 +122,15 @@ def render_interactive_report(
     intentionally performed through ``analyze_portfolio``/``combine_analyses``
     before this renderer is called; the renderer does not accept a collection
     of raw reports because one raw report maps to one strategy.
+
+    ``monte_carlo`` may contain a simulation already computed by
+    :func:`analyser.run_monte_carlo`.  It is embedded as a separate report tab;
+    the browser only presents its typed summary and retained paths.
     """
 
     config = config or InteractiveReportConfig()
     result = _ensure_result(source, analysis_config)
-    payload = _build_payload(result, config)
+    payload = _build_payload(result, config, monte_carlo)
     title = config.title or _default_title(result)
     description = config.description or _default_description(result)
     embedded_payload = _embed_json(payload)
@@ -144,13 +150,19 @@ def save_interactive_report(
     config: InteractiveReportConfig | None = None,
     *,
     analysis_config: AnalysisConfig | None = None,
+    monte_carlo: MonteCarloResult | None = None,
 ) -> Path:
     """Generate and write one self-contained interactive HTML page."""
 
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        render_interactive_report(source, config, analysis_config=analysis_config),
+        render_interactive_report(
+            source,
+            config,
+            analysis_config=analysis_config,
+            monte_carlo=monte_carlo,
+        ),
         encoding="utf-8",
     )
     return path
@@ -161,6 +173,7 @@ def serve_interactive_report(
     config: InteractiveReportConfig | None = None,
     *,
     analysis_config: AnalysisConfig | None = None,
+    monte_carlo: MonteCarloResult | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> InteractiveReportServer:
@@ -168,7 +181,12 @@ def serve_interactive_report(
 
     if not host:
         raise ValueError("host must be non-empty")
-    page = render_interactive_report(source, config, analysis_config=analysis_config)
+    page = render_interactive_report(
+        source,
+        config,
+        analysis_config=analysis_config,
+        monte_carlo=monte_carlo,
+    )
     content = page.encode("utf-8")
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -236,6 +254,7 @@ def _default_description(result: AnalysisResult | PortfolioAnalysisResult) -> st
 def _build_payload(
     result: AnalysisResult | PortfolioAnalysisResult,
     config: InteractiveReportConfig,
+    monte_carlo: MonteCarloResult | None,
 ) -> dict[str, Any]:
     variants: dict[str, AnalysisResult | PortfolioAnalysisResult]
     if isinstance(result, PortfolioAnalysisResult):
@@ -262,6 +281,7 @@ def _build_payload(
         "default_data": "portfolio" if isinstance(result, PortfolioAnalysisResult) else "single",
         "directions": ["all", "long", "short"],
         "variants": serialized_variants,
+        "monte_carlo": _monte_carlo_payload(monte_carlo, result),
     }
 
 
@@ -328,6 +348,44 @@ def _safe_analysis_payload(
         "selection": _selection_payload(result),
         "filter": _json_safe(result.filter_spec.to_dict() if result.filter_spec else None),
     }
+
+
+def _monte_carlo_payload(
+    simulation: MonteCarloResult | None,
+    result: AnalysisResult | PortfolioAnalysisResult,
+) -> dict[str, Any] | None:
+    """Build the redacted presentation payload for an optional simulation.
+
+    The simulation has already been performed by the public analyser API.  The
+    interactive report receives only its typed summary and retained paths; it
+    never randomises trades or recomputes Monte Carlo statistics in JavaScript.
+    """
+
+    if simulation is None:
+        return None
+    if not isinstance(simulation, MonteCarloResult):
+        raise TypeError("monte_carlo must be a MonteCarloResult or None")
+
+    if isinstance(result, PortfolioAnalysisResult):
+        initial_equity = result.portfolio_initial_capital
+        currency = result.currency
+        scope = "portfolio"
+    else:
+        initial_equity = result.report.initial_deposit
+        currency = result.report.currency
+        scope = "strategy"
+
+    return _json_safe({
+        "scope": scope,
+        "currency": currency,
+        "initial_equity": initial_equity,
+        "config": simulation.config.to_dict(),
+        "summary": simulation.summary(),
+        "path_indices": simulation.path_indices.tolist(),
+        "equity_paths": simulation.equity_paths.tolist(),
+        "winning_streak_paths": simulation.winning_streak_paths.tolist(),
+        "losing_streak_paths": simulation.losing_streak_paths.tolist(),
+    })
 
 
 def _interactive_metrics_payload(metrics: Any) -> dict[str, Any]:
@@ -689,6 +747,8 @@ p { color: var(--muted); }
 .nav { display: flex; flex-wrap: wrap; gap: .45rem; padding: .7rem 0 1.35rem; }
 .nav a { color: var(--muted); text-decoration: none; background: rgba(16,39,67,.6); border: 1px solid var(--border); border-radius: 99px; padding: .42rem .72rem; font-size: .82rem; }
 .nav a:hover { color: var(--text); border-color: var(--accent); }
+.nav a.monte-carlo-tab { color: #d8d1ff; border-color: rgba(124,108,255,.58); background: rgba(124,108,255,.14); }
+.nav a.monte-carlo-tab:hover { color: var(--text); border-color: var(--accent-2); background: rgba(124,108,255,.22); }
 .section { scroll-margin-top: 84px; margin: 1.35rem 0; }
 .section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: .78rem; }
 .panel { background: linear-gradient(145deg, rgba(13,28,49,.96), rgba(9,24,43,.96)); border: 1px solid var(--border); border-radius: 15px; box-shadow: var(--shadow); padding: 1rem; }
@@ -734,6 +794,28 @@ p { color: var(--muted); }
 .trade-chart .bar-value { fill: var(--muted); font-size: 10px; }
 .trade-chart .bar-positive { fill: var(--positive); }
 .trade-chart .bar-negative { fill: var(--negative); }
+.mc-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .65rem; margin-bottom: 1rem; }
+.mc-stat { min-height: 84px; padding: .72rem; border-radius: 11px; background: rgba(124,108,255,.12); border: 1px solid rgba(124,108,255,.28); }
+.mc-stat .label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.mc-stat .value { margin-top: .35rem; font-size: 1.13rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.mc-table { margin-top: .9rem; }
+.mc-table th, .mc-table td { text-align: right; }
+.mc-table th:first-child, .mc-table td:first-child { text-align: left; }
+.mc-chart { width: 100%; min-width: 720px; height: 430px; display: block; }
+.mc-chart text { fill: #243b53; font-size: 11px; }
+.mc-chart .grid { stroke: rgba(36,59,83,.16); stroke-width: 1; }
+.mc-chart .axis { stroke: rgba(36,59,83,.38); stroke-width: 1; }
+.mc-chart .zero { stroke: rgba(36,59,83,.55); stroke-dasharray: 5 4; }
+.mc-chart .initial-line { stroke: rgba(36,59,83,.72); stroke-dasharray: 6 4; stroke-width: 1.2; }
+.mc-chart .band-wide { fill: rgba(93,182,255,.18); }
+.mc-chart .band-central { fill: rgba(66,217,160,.22); }
+.mc-chart .path { fill: none; stroke: rgba(36,59,83,.16); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.mc-chart .median { fill: none; stroke: #7c6cff; stroke-width: 2.6; vector-effect: non-scaling-stroke; }
+.mc-legend { display: flex; flex-wrap: wrap; gap: .65rem 1rem; padding: .45rem 0 0; color: var(--muted); font-size: .78rem; }
+.mc-legend span::before { content: ""; display: inline-block; width: 22px; height: 3px; margin-right: .35rem; vertical-align: middle; border-radius: 99px; background: var(--accent); }
+.mc-legend .central::before { background: var(--positive); }
+.mc-legend .median::before { background: var(--accent-2); }
+.mc-legend .path-line::before { height: 1px; background: rgba(36,59,83,.42); }
 .data-table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
 .data-table th, .data-table td { padding: .48rem .55rem; border-bottom: 1px solid rgba(141,165,196,.13); text-align: right; white-space: nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align: left; }
@@ -794,6 +876,8 @@ p { color: var(--muted); }
   .monthly-table th:last-child, .monthly-table td:last-child { position: sticky; right: 0; z-index: 2; min-width: 4.5rem; background: var(--panel-2); box-shadow: -3px 0 5px rgba(0,0,0,.18); }
   .monthly-table thead th:first-child, .monthly-table thead th:last-child { z-index: 3; }
   .matrix-wrap .data-table { min-width: 760px; }
+  .mc-table { width: 100%; min-width: 0; max-width: 100%; }
+  .mc-table .data-table { width: max-content; min-width: 720px; }
   .nav { min-width: 0; }
   .nav a { max-width: 100%; }
   .pagination { align-items: flex-start; flex-direction: column; }
@@ -829,7 +913,7 @@ p { color: var(--muted); }
   </div>
   <nav class="nav" aria-label="Report sections">
     <a href="#overview">Overview</a><a href="#equity">Equity</a><a href="#trade-analysis">Trade analysis</a>
-    <a href="#monthly">Monthly performance</a><a href="#correlation">Correlation</a><a href="#trades">Trades</a><a href="#audit">Warnings & provenance</a>
+    <a href="#monthly">Monthly performance</a><a href="#correlation">Correlation</a><a href="#trades">Trades</a><a href="#monte-carlo" class="monte-carlo-tab">Monte Carlo</a><a href="#audit">Warnings & provenance</a>
   </nav>
 
   <main>
@@ -878,6 +962,11 @@ p { color: var(--muted); }
         <label class="control-label" for="tradeSort">Sort</label><select id="tradeSort"><option value="close_desc">Close time ↓</option><option value="close_asc">Close time ↑</option><option value="profit_desc">Net profit ↓</option><option value="profit_asc">Net profit ↑</option></select>
       </div></div>
       <div class="panel"><div class="matrix-wrap" id="tradeTable"></div><div class="pagination" id="pagination"></div></div>
+    </section>
+
+    <section class="section" id="monte-carlo">
+      <div class="section-heading"><h2>Monte Carlo robustness</h2><div class="controls"><button id="downloadMonteCarlo" type="button">Download Monte Carlo JSON</button></div></div>
+      <div class="panel" id="monteCarloPanel"></div>
     </section>
 
     <section class="section" id="audit">
@@ -932,6 +1021,14 @@ p { color: var(--muted); }
     ["max_consecutive_wins", "Max win streak", "integer", "Maximum consecutive positive positions."],
     ["max_consecutive_losses", "Max loss streak", "integer", "Maximum consecutive negative positions."],
     ["max_stagnation_days", "Stagnation days", "number", "Longest time below a prior equity high."],
+  ];
+  const monteCarloMetricSpecs = [
+    ["net_profit", "Net profit", "money", "Distribution of simulated net profit."],
+    ["final_equity", "Final equity", "money", "Distribution of simulated ending equity."],
+    ["max_drawdown_money", "Max drawdown", "money", "Distribution of simulated high-water-mark drawdown."],
+    ["max_drawdown_pct", "Max drawdown %", "pct", "Distribution of simulated peak-relative drawdown."],
+    ["max_consecutive_wins", "Max win streak", "number", "Distribution of the longest winning streak."],
+    ["max_consecutive_losses", "Max loss streak", "number", "Distribution of the longest losing streak."],
   ];
   const groupingLabels = {open_hour: "Opening hour", close_hour: "Closing hour", open_day_of_week: "Opening day", close_day_of_week: "Closing day"};
   const $ = (id) => document.getElementById(id);
@@ -1031,6 +1128,103 @@ p { color: var(--muted); }
   function renderMetrics() {
     const metrics = currentView().metrics || {};
     $("metrics").innerHTML = metricSpecs.map(([key, label, kind, definition]) => `<div class='metric'><div class='label-row'><span class='label'>${esc(label)}</span><button class='info-icon' type='button' aria-label='Definition for ${esc(label)}' data-tooltip='${esc(definition)}' title='${esc(definition)}'>i</button></div><div class='value'>${esc(fmt(metrics[key], kind))}</div></div>`).join("");
+  }
+  function monteCarloQuantile(values, percentile) {
+    if (!values.length) return null;
+    const sorted = values.slice().sort((left, right) => left - right);
+    const position = (sorted.length - 1) * percentile / 100;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    if (lower === upper) return sorted[lower];
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  }
+  function monteCarloPercentileSeries(paths, percentile) {
+    if (!paths.length || !paths[0]?.length) return [];
+    return Array.from({length: paths[0].length}, (_unused, index) => monteCarloQuantile(paths.map((path) => Number(path[index])).filter(Number.isFinite), percentile));
+  }
+  function monteCarloPoint(value, index, length, left, right, top, bottom, min, max) {
+    const x = left + index / Math.max(1, length - 1) * (right - left);
+    const y = bottom - (Number(value) - min) / (max - min || 1) * (bottom - top);
+    return [x, y];
+  }
+  function monteCarloLinePath(values, left, right, top, bottom, min, max) {
+    return values.map((value, index) => {
+      const [x, y] = monteCarloPoint(value, index, values.length, left, right, top, bottom, min, max);
+      return `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(" ");
+  }
+  function monteCarloBandPath(lower, upper, left, right, top, bottom, min, max) {
+    const points = upper.map((value, index) => monteCarloPoint(value, index, upper.length, left, right, top, bottom, min, max));
+    points.push(...lower.map((value, index) => monteCarloPoint(value, index, lower.length, left, right, top, bottom, min, max)).reverse());
+    return `${points.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(2)},${point[1].toFixed(2)}`).join(" ")} Z`;
+  }
+  function renderMonteCarloPathChart(simulation) {
+    const container = $("monteCarloChart");
+    const paths = simulation.equity_paths || [];
+    if (!paths.length || !paths[0]?.length) {
+      container.innerHTML = "<div class='notice muted'>No retained simulated paths are available. Enable path retention to display the distribution chart.</div>";
+      return;
+    }
+    const p5 = monteCarloPercentileSeries(paths, 5);
+    const p25 = monteCarloPercentileSeries(paths, 25);
+    const p50 = monteCarloPercentileSeries(paths, 50);
+    const p75 = monteCarloPercentileSeries(paths, 75);
+    const p95 = monteCarloPercentileSeries(paths, 95);
+    let min = Number(simulation.initial_equity);
+    let max = Number(simulation.initial_equity);
+    paths.forEach((path) => path.forEach((value) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return;
+      min = Math.min(min, number);
+      max = Math.max(max, number);
+    }));
+    if (!Number.isFinite(min)) min = 0;
+    if (!Number.isFinite(max)) max = min + 1;
+    const range = max - min || 1;
+    min -= range * .08;
+    max += range * .08;
+    const width = 1140, height = 430, left = 118, right = 1110, top = 28, bottom = 378;
+    const currency = simulation.currency || currentView().currency;
+    const ticks = [0, .25, .5, .75, 1].map((fraction) => min + fraction * (max - min));
+    const svg = [`<svg class='mc-chart' viewBox='0 0 ${width} ${height}' role='img' aria-label='Monte Carlo simulated equity paths'><rect x='0' y='0' width='${width}' height='${height}' fill='#ffffff'/>`];
+    ticks.forEach((value) => {
+      const y = bottom - (value - min) / (max - min || 1) * (bottom - top);
+      svg.push(`<line class='grid' x1='${left}' x2='${right}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/><text x='${left-10}' y='${(y+4).toFixed(2)}' text-anchor='end'>${esc(axisMoneyLabel(value, currency))}</text>`);
+    });
+    const initial = Number(simulation.initial_equity);
+    const initialY = bottom - (initial - min) / (max - min || 1) * (bottom - top);
+    svg.push(`<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${bottom}'/><line class='axis' x1='${left}' x2='${right}' y1='${bottom}' y2='${bottom}'/>`);
+    svg.push(`<line class='initial-line' x1='${left}' x2='${right}' y1='${initialY.toFixed(2)}' y2='${initialY.toFixed(2)}'/><text class='initial-label' x='${left+6}' y='${Math.max(top+12, initialY-6)}'>Initial equity: ${esc(axisMoneyLabel(initial, currency))}</text>`);
+    svg.push(`<path class='band-wide' d='${monteCarloBandPath(p5, p95, left, right, top, bottom, min, max)}'/><path class='band-central' d='${monteCarloBandPath(p25, p75, left, right, top, bottom, min, max)}'/>`);
+    paths.forEach((path) => svg.push(`<path class='path' d='${monteCarloLinePath(path, left, right, top, bottom, min, max)}'/>`));
+    svg.push(`<path class='median' d='${monteCarloLinePath(p50, left, right, top, bottom, min, max)}'/><text x='${left}' y='17'>Simulated equity</text><text x='${left + (right-left)/2}' y='${height-12}' text-anchor='middle'>Trade sequence · ${esc(String(paths.length))} retained paths</text></svg>`);
+    container.innerHTML = `<div class='small'>Percentile bands are calculated at each simulated trade step from the retained paths. The browser only presents the deterministic simulation supplied by the analyser.</div><div class='chart-wrap'>${svg.join("")}</div><div class='mc-legend'><span class='path-line'>Retained paths</span><span>5–95% range</span><span class='central'>25–75% range</span><span class='median'>Median path</span></div>`;
+  }
+  function renderMonteCarlo() {
+    const panel = $("monteCarloPanel");
+    const simulation = report.monte_carlo;
+    const downloadButton = $("downloadMonteCarlo");
+    if (!simulation) {
+      downloadButton.disabled = true;
+      panel.innerHTML = "<div class='notice muted'>Monte Carlo was not run for this report. Enable it in the desktop GUI or pass a MonteCarloResult to the interactive report API.</div>";
+      return;
+    }
+    downloadButton.disabled = false;
+    const summary = simulation.summary || {};
+    const statSpecs = [
+      ["Probability of ruin", summary.probability_of_ruin_pct, "pct"],
+      ["Median net profit", summary.net_profit?.p50, "money"],
+      ["P95 max drawdown", summary.max_drawdown_money?.p95, "money"],
+      ["Median final equity", summary.final_equity?.p50, "money"],
+      ["P95 loss streak", summary.max_consecutive_losses?.p95, "number"],
+    ];
+    const cards = statSpecs.map(([label, value, kind]) => `<div class='mc-stat'><div class='label'>${esc(label)}</div><div class='value'>${esc(fmt(value, kind))}</div></div>`).join("");
+    const rows = monteCarloMetricSpecs.map(([key, label, kind, definition]) => {
+      const values = summary[key] || {};
+      return `<tr><th><div class='label-row'><span class='label'>${esc(label)}</span><button class='info-icon' type='button' aria-label='Definition for ${esc(label)}' data-tooltip='${esc(definition)}' title='${esc(definition)}'>i</button></div></th><td>${esc(fmt(values.p5, kind))}</td><td>${esc(fmt(values.p50, kind))}</td><td>${esc(fmt(values.p95, kind))}</td><td>${esc(fmt(values.mean, kind))}</td><td>${esc(fmt(values.worst, kind))}</td></tr>`;
+    }).join("");
+    panel.innerHTML = `<div class='mc-summary-grid'>${cards}</div><div class='matrix-wrap mc-table'><table class='data-table'><thead><tr><th>Distribution</th><th>P5</th><th>Median</th><th>P95</th><th>Mean</th><th>Worst</th></tr></thead><tbody>${rows}</tbody></table></div><div class='panel chart-panel' style='margin-top:1rem'><div id='monteCarloChart'></div></div><p class='small'>Monte Carlo operates on completed-position net profits from the all-trades report view. Direction and member filters do not rerun this simulation. Permutation preserves the observed outcomes and changes their order; bootstrap samples with replacement. It does not simulate future tick paths or live execution.</p>`;
+    renderMonteCarloPathChart(simulation);
   }
   function getCurve(view, key) {
     if (key === "reconstructed") return view.balance;
@@ -1304,12 +1498,13 @@ p { color: var(--muted); }
     $("pagination").innerHTML = `<span class='small'>${rows.length ? `${(state.page-1)*pageSize+1}–${Math.min(state.page*pageSize, rows.length)} of ${rows.length}` : "0 trades"}</span><span class='controls'><button type='button' id='prevPage' ${state.page <= 1 ? "disabled" : ""}>Previous</button><button type='button' id='nextPage' ${state.page >= pages ? "disabled" : ""}>Next</button></span>`;
     $("prevPage")?.addEventListener("click", () => { state.page--; renderTrades(); }); $("nextPage")?.addEventListener("click", () => { state.page++; renderTrades(); });
   }
-  function rerender() { renderToolbar(); renderMetrics(); renderEquity(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
+  function rerender() { renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
   function download(name, content, type) { const blob = content instanceof Blob ? content : new Blob([content], {type}); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
   function downloadDataUrl(name, dataUrl) { const link = document.createElement("a"); link.href = dataUrl; link.download = name; link.click(); }
   function csvValue(value) { const text = value == null ? "" : String(value); return `"${text.replace(/"/g, '""')}"`; }
   function downloadCsv() { const rows = filteredTrades(); if (!rows.length) return; const keys = Object.keys(rows[0]); download("trades.csv", [keys.join(","), ...rows.map((row) => keys.map((key) => csvValue(row[key])).join(","))].join("\n"), "text/csv"); }
   function downloadJson() { download("analysis-view.json", JSON.stringify({title: state.title, direction: state.direction, data: state.data, view: currentView()}, null, 2), "application/json"); }
+  function downloadMonteCarlo() { if (report.monte_carlo) download("monte-carlo.json", JSON.stringify(report.monte_carlo, null, 2), "application/json"); }
   function downloadSvg() { const svg = $("equitySvg"); if (svg) download("equity-drawdown.svg", new XMLSerializer().serializeToString(svg), "image/svg+xml"); }
   function downloadPng() { const svg = $("equitySvg"); if (!svg) return; const source = new XMLSerializer().serializeToString(svg); const image = new Image(); image.onload = () => { const canvas = document.createElement("canvas"); canvas.width = 1140; canvas.height = 435; const context = canvas.getContext("2d"); context.fillStyle = "#0d1c31"; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0); downloadDataUrl("equity-drawdown.png", canvas.toDataURL("image/png")); }; image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`; }
   function bind() {
@@ -1339,6 +1534,7 @@ p { color: var(--muted); }
     $("correlationMode").addEventListener("change", (event) => { state.correlationMode = event.target.value; renderCorrelation(); });
     $("tradeSearch").addEventListener("input", (event) => { state.search = event.target.value; state.page = 1; renderTrades(); });
     $("tradeSort").addEventListener("change", (event) => { state.sort = event.target.value; renderTrades(); });
+    $("downloadMonteCarlo").addEventListener("click", downloadMonteCarlo);
     $("downloadCsv").addEventListener("click", downloadCsv); $("downloadJson").addEventListener("click", downloadJson); $("downloadSvg").addEventListener("click", downloadSvg); $("downloadPng").addEventListener("click", downloadPng);
     $("copyLink").addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.href); $("copyLink").textContent = "Copied"; setTimeout(() => $("copyLink").textContent = "Copy view link", 1200); } catch (_error) { $("copyLink").textContent = "Copy unavailable"; } });
   }
