@@ -75,11 +75,13 @@ decimal places**.
 When a strategy or portfolio is analysed without a more specific output format,
 the preferred user-facing result is one self-contained interactive HTML report.
 It contains the metrics, filters, equity/drawdown chart, monthly tables, trade
-analysis, and portfolio correlation heat map where applicable. When a
-`MonteCarloResult` is supplied, it also contains a separate Monte Carlo tab near
-the end of the report, immediately before Warnings & provenance, with distribution
-summaries and retained-path bands. The report can be opened directly in a browser
-without Python.
+analysis, and portfolio correlation heat map where applicable. The section
+navigation is implemented as true in-page tabs: only the selected panel is shown,
+while all views remain in one self-contained HTML file. The selected tab is kept in
+the URL fragment for reloads and shareable view links. When a `MonteCarloResult` is
+supplied, the Monte Carlo tab appears near the end of the report, immediately
+before the final Warnings & provenance tab, with distribution summaries and
+retained-path bands. The report can be opened directly in a browser without Python.
 
 - [Example equal-weight portfolio report](results/interactive-portfolio-report.html)
 - [Example single-strategy report](results/interactive-report.html)

@@ -105,10 +105,14 @@ size limit, and add malicious-XML regression tests.
 
 The main report workflow can turn one MT5 HTML/XML report into one self-contained
 webpage. The page is generated from the eager typed result, so the browser is a
-retrieval and presentation layer rather than a second metric implementation.
-When a `MonteCarloResult` is supplied, the same page adds a dedicated Monte Carlo
-tab near the end of the report, immediately before the final Warnings & provenance
-section, with percentile summaries and any retained simulated paths.
+retrieval and presentation layer rather than a second metric implementation. Its
+section navigation behaves as true in-page tabs: selecting a tab hides the other
+panels instead of making the user flick through one long page, while the complete
+report remains in the same HTML file. The selected tab and other view controls are
+kept in the URL fragment for reloads and shareable links. When a `MonteCarloResult`
+is supplied, the same page adds a dedicated Monte Carlo tab near the end of the
+report, immediately before the final Warnings & provenance section, with percentile
+summaries and any retained simulated paths.
 
 ```python
 from analyser import (

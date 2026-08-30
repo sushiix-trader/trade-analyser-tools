@@ -747,9 +747,11 @@ p { color: var(--muted); }
 .nav { display: flex; flex-wrap: wrap; gap: .45rem; padding: .7rem 0 1.35rem; }
 .nav a { color: var(--muted); text-decoration: none; background: rgba(16,39,67,.6); border: 1px solid var(--border); border-radius: 99px; padding: .42rem .72rem; font-size: .82rem; }
 .nav a:hover { color: var(--text); border-color: var(--accent); }
+.nav a[aria-selected="true"] { color: var(--text); border-color: var(--accent); background: rgba(93,182,255,.18); box-shadow: 0 0 0 1px rgba(93,182,255,.12); }
 .nav a.monte-carlo-tab { color: #d8d1ff; border-color: rgba(124,108,255,.58); background: rgba(124,108,255,.14); }
-.nav a.monte-carlo-tab:hover { color: var(--text); border-color: var(--accent-2); background: rgba(124,108,255,.22); }
+.nav a.monte-carlo-tab:hover, .nav a.monte-carlo-tab[aria-selected="true"] { color: var(--text); border-color: var(--accent-2); background: rgba(124,108,255,.28); }
 .section { scroll-margin-top: 84px; margin: 1.35rem 0; }
+.tab-panel[hidden] { display: none; }
 .section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: .78rem; }
 .panel { background: linear-gradient(145deg, rgba(13,28,49,.96), rgba(9,24,43,.96)); border: 1px solid var(--border); border-radius: 15px; box-shadow: var(--shadow); padding: 1rem; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .65rem; }
@@ -911,18 +913,18 @@ p { color: var(--muted); }
     <button id="resetButton" type="button">Reset</button>
     <span class="meta" id="toolbarMeta"></span>
   </div>
-  <nav class="nav" aria-label="Report sections">
-    <a href="#overview">Overview</a><a href="#equity">Equity</a><a href="#trade-analysis">Trade analysis</a>
-    <a href="#monthly">Monthly performance</a><a href="#correlation">Correlation</a><a href="#trades">Trades</a><a href="#monte-carlo" class="monte-carlo-tab">Monte Carlo</a><a href="#audit">Warnings & provenance</a>
+  <nav class="nav" role="tablist" aria-label="Report sections">
+    <a id="tab-overview" href="#overview" role="tab" data-tab="overview" aria-controls="overview" aria-selected="true" tabindex="0">Overview</a><a id="tab-equity" href="#equity" role="tab" data-tab="equity" aria-controls="equity" aria-selected="false" tabindex="-1">Equity</a><a id="tab-trade-analysis" href="#trade-analysis" role="tab" data-tab="trade-analysis" aria-controls="trade-analysis" aria-selected="false" tabindex="-1">Trade analysis</a>
+    <a id="tab-monthly" href="#monthly" role="tab" data-tab="monthly" aria-controls="monthly" aria-selected="false" tabindex="-1">Monthly performance</a><a id="tab-correlation" href="#correlation" role="tab" data-tab="correlation" aria-controls="correlation" aria-selected="false" tabindex="-1">Correlation</a><a id="tab-trades" href="#trades" role="tab" data-tab="trades" aria-controls="trades" aria-selected="false" tabindex="-1">Trades</a><a id="tab-monte-carlo" href="#monte-carlo" role="tab" data-tab="monte-carlo" aria-controls="monte-carlo" aria-selected="false" tabindex="-1" class="monte-carlo-tab">Monte Carlo</a><a id="tab-audit" href="#audit" role="tab" data-tab="audit" aria-controls="audit" aria-selected="false" tabindex="-1">Warnings & provenance</a>
   </nav>
 
   <main>
-    <section class="section" id="overview">
+    <section class="section tab-panel" id="overview" role="tabpanel" data-tab-panel="overview" aria-labelledby="tab-overview">
       <div class="section-heading"><h2>Overview</h2><span class="small" id="overviewMeta"></span></div>
       <div class="panel"><div class="metric-grid" id="metrics"></div></div>
     </section>
 
-    <section class="section" id="equity">
+    <section class="section tab-panel" id="equity" role="tabpanel" data-tab-panel="equity" aria-labelledby="tab-equity" hidden>
       <div class="section-heading"><h2>Equity & drawdown</h2><div class="controls">
         <button id="valueMode" type="button" aria-label="Toggle equity and drawdown values between percentage and currency">Values in %</button>
         <label class="control-label"><input id="memberToggle" type="checkbox"> show strategies</label>
@@ -932,7 +934,7 @@ p { color: var(--muted); }
       <div class="panel chart-panel"><div class="chart-wrap" id="equityChart"></div><div class="legend" id="equityLegend"></div><div class="chart-tooltip" id="chartTooltip"></div></div>
     </section>
 
-    <section class="section" id="trade-analysis">
+    <section class="section tab-panel" id="trade-analysis" role="tabpanel" data-tab-panel="trade-analysis" aria-labelledby="tab-trade-analysis" hidden>
       <div class="section-heading"><h2>Trade analysis</h2><div class="controls">
         <label class="control-label" for="groupingSelect">Group by</label><select id="groupingSelect">
           <option value="open_hour">Opening hour</option><option value="close_hour">Closing hour</option><option value="open_day_of_week">Opening day</option><option value="close_day_of_week">Closing day</option>
@@ -942,21 +944,21 @@ p { color: var(--muted); }
       <div class="panel"><div id="tradeBars"></div></div>
     </section>
 
-    <section class="section" id="monthly">
+    <section class="section tab-panel" id="monthly" role="tabpanel" data-tab-panel="monthly" aria-labelledby="tab-monthly" hidden>
       <div class="section-heading"><h2>Monthly performance</h2><span class="small">Percentages; two decimals; YTD is compounded. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyTable"></div></div>
       <div class="section-heading"><h2>Monthly drawdown</h2><span class="small">Maximum intramonth drawdown; Worst is the annual minimum. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyDrawdownTable"></div></div>
     </section>
 
-    <section class="section" id="correlation">
+    <section class="section tab-panel" id="correlation" role="tabpanel" data-tab-panel="correlation" aria-labelledby="tab-correlation" hidden>
       <div class="section-heading"><h2>Daily profit correlation</h2><div class="controls" id="correlationControls">
         <label class="control-label" for="correlationMode">Series</label><select id="correlationMode"><option value="raw">Raw</option><option value="allocated">Allocated</option></select>
       </div></div>
       <div class="panel" id="correlationPanel"></div>
     </section>
 
-    <section class="section" id="trades">
+    <section class="section tab-panel" id="trades" role="tabpanel" data-tab-panel="trades" aria-labelledby="tab-trades" hidden>
       <div class="section-heading"><h2>Completed positions</h2><div class="controls">
         <input id="tradeSearch" type="search" placeholder="Search symbol or strategy" aria-label="Search trades">
         <label class="control-label" for="tradeSort">Sort</label><select id="tradeSort"><option value="close_desc">Close time ↓</option><option value="close_asc">Close time ↑</option><option value="profit_desc">Net profit ↓</option><option value="profit_asc">Net profit ↑</option></select>
@@ -964,12 +966,12 @@ p { color: var(--muted); }
       <div class="panel"><div class="matrix-wrap" id="tradeTable"></div><div class="pagination" id="pagination"></div></div>
     </section>
 
-    <section class="section" id="monte-carlo">
+    <section class="section tab-panel" id="monte-carlo" role="tabpanel" data-tab-panel="monte-carlo" aria-labelledby="tab-monte-carlo" hidden>
       <div class="section-heading"><h2>Monte Carlo robustness</h2><div class="controls"><button id="downloadMonteCarlo" type="button">Download Monte Carlo JSON</button></div></div>
       <div class="panel" id="monteCarloPanel"></div>
     </section>
 
-    <section class="section" id="audit">
+    <section class="section tab-panel" id="audit" role="tabpanel" data-tab-panel="audit" aria-labelledby="tab-audit" hidden>
       <div class="section-heading"><h2>Warnings & provenance</h2><div class="controls"><button id="downloadCsv" type="button">Download CSV</button><button id="downloadJson" type="button">Download JSON</button><button id="downloadSvg" type="button">Download SVG</button><button id="downloadPng" type="button">Download PNG</button><button id="copyLink" type="button">Copy view link</button></div></div>
       <div class="two-col"><div class="panel"><h3>Diagnostics</h3><div class="warning-list" id="warnings"></div></div><div class="panel"><h3>Provenance</h3><div id="provenance"></div></div></div>
     </section>
@@ -982,7 +984,9 @@ p { color: var(--muted); }
   "use strict";
   const report = JSON.parse(document.getElementById("report-data").textContent);
   const config = JSON.parse(document.getElementById("report-config").textContent);
+  const TAB_IDS = ["overview", "equity", "trade-analysis", "monthly", "correlation", "trades", "monte-carlo", "audit"];
   const state = {
+    activeTab: "overview",
     direction: report.default_direction || "all",
     data: report.default_data || "single",
     curve: "primary",
@@ -1085,11 +1089,14 @@ p { color: var(--muted); }
     $("reportTitleInput").value = title;
   }
   function updateHash() {
-    const params = new URLSearchParams({direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
+    const params = new URLSearchParams({tab: state.activeTab, direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
     history.replaceState(null, "", `#${params.toString()}`);
   }
   function readHash() {
-    const params = new URLSearchParams(location.hash.slice(1));
+    const rawHash = location.hash.slice(1);
+    const params = new URLSearchParams(rawHash);
+    if (TAB_IDS.includes(params.get("tab"))) state.activeTab = params.get("tab");
+    else if (TAB_IDS.includes(rawHash)) state.activeTab = rawHash;
     if (["all", "long", "short"].includes(params.get("direction"))) state.direction = params.get("direction");
     if (report.kind === "portfolio" && (params.get("data") === "portfolio" || report.variants.all.members?.[params.get("data")])) state.data = params.get("data");
     if (["percent", "money"].includes(params.get("equity"))) state.valueMode = params.get("equity");
@@ -1498,12 +1505,35 @@ p { color: var(--muted); }
     $("pagination").innerHTML = `<span class='small'>${rows.length ? `${(state.page-1)*pageSize+1}–${Math.min(state.page*pageSize, rows.length)} of ${rows.length}` : "0 trades"}</span><span class='controls'><button type='button' id='prevPage' ${state.page <= 1 ? "disabled" : ""}>Previous</button><button type='button' id='nextPage' ${state.page >= pages ? "disabled" : ""}>Next</button></span>`;
     $("prevPage")?.addEventListener("click", () => { state.page--; renderTrades(); }); $("nextPage")?.addEventListener("click", () => { state.page++; renderTrades(); });
   }
-  function rerender() { renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
+  function renderTabs() {
+    document.querySelectorAll("[data-tab]").forEach((tab) => {
+      const active = tab.dataset.tab === state.activeTab;
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+      tab.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.tabPanel !== state.activeTab;
+    });
+  }
+  function selectTab(tabId) {
+    state.activeTab = TAB_IDS.includes(tabId) ? tabId : "overview";
+    renderTabs();
+    updateHash();
+    window.scrollTo(0, 0);
+  }
+  function moveTab(offset) {
+    const currentIndex = Math.max(0, TAB_IDS.indexOf(state.activeTab));
+    const nextIndex = (currentIndex + offset + TAB_IDS.length) % TAB_IDS.length;
+    const nextTab = TAB_IDS[nextIndex];
+    selectTab(nextTab);
+    document.querySelector(`[data-tab="${nextTab}"]`)?.focus();
+  }
+  function rerender() { renderTabs(); renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
   function download(name, content, type) { const blob = content instanceof Blob ? content : new Blob([content], {type}); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
   function downloadDataUrl(name, dataUrl) { const link = document.createElement("a"); link.href = dataUrl; link.download = name; link.click(); }
   function csvValue(value) { const text = value == null ? "" : String(value); return `"${text.replace(/"/g, '""')}"`; }
   function downloadCsv() { const rows = filteredTrades(); if (!rows.length) return; const keys = Object.keys(rows[0]); download("trades.csv", [keys.join(","), ...rows.map((row) => keys.map((key) => csvValue(row[key])).join(","))].join("\n"), "text/csv"); }
-  function downloadJson() { download("analysis-view.json", JSON.stringify({title: state.title, direction: state.direction, data: state.data, view: currentView()}, null, 2), "application/json"); }
+  function downloadJson() { download("analysis-view.json", JSON.stringify({title: state.title, tab: state.activeTab, direction: state.direction, data: state.data, view: currentView()}, null, 2), "application/json"); }
   function downloadMonteCarlo() { if (report.monte_carlo) download("monte-carlo.json", JSON.stringify(report.monte_carlo, null, 2), "application/json"); }
   function downloadSvg() { const svg = $("equitySvg"); if (svg) download("equity-drawdown.svg", new XMLSerializer().serializeToString(svg), "image/svg+xml"); }
   function downloadPng() { const svg = $("equitySvg"); if (!svg) return; const source = new XMLSerializer().serializeToString(svg); const image = new Image(); image.onload = () => { const canvas = document.createElement("canvas"); canvas.width = 1140; canvas.height = 435; const context = canvas.getContext("2d"); context.fillStyle = "#0d1c31"; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0); downloadDataUrl("equity-drawdown.png", canvas.toDataURL("image/png")); }; image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`; }
@@ -1512,6 +1542,17 @@ p { color: var(--muted); }
     $("cancelTitleButton").addEventListener("click", () => { $("titleEditor").hidden = true; $("titleEditStatus").textContent = ""; $("reportTitleInput").value = state.title; });
     $("saveTitleButton").addEventListener("click", () => { const title = normalizeTitle($("reportTitleInput").value); if (!title) { $("titleEditStatus").textContent = "Enter a report name."; $("reportTitleInput").focus(); return; } applyTitle(title); $("titleEditor").hidden = true; $("titleEditStatus").textContent = ""; updateHash(); });
     $("reportTitleInput").addEventListener("keydown", (event) => { if (event.key === "Enter") $("saveTitleButton").click(); if (event.key === "Escape") $("cancelTitleButton").click(); });
+    document.querySelectorAll("[data-tab]").forEach((tab) => {
+      tab.addEventListener("click", (event) => { event.preventDefault(); selectTab(tab.dataset.tab); });
+      tab.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); moveTab(1); }
+        else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); moveTab(-1); }
+        else if (event.key === "Home") { event.preventDefault(); selectTab(TAB_IDS[0]); document.querySelector(`[data-tab="${TAB_IDS[0]}"]`)?.focus(); }
+        else if (event.key === "End") { event.preventDefault(); selectTab(TAB_IDS[TAB_IDS.length - 1]); document.querySelector(`[data-tab="${TAB_IDS[TAB_IDS.length - 1]}"]`)?.focus(); }
+        else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectTab(tab.dataset.tab); }
+      });
+    });
+    window.addEventListener("hashchange", () => { readHash(); rerender(); window.scrollTo(0, 0); });
     $("dataSelect").addEventListener("change", (event) => { state.data = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
     $("directionSelect").addEventListener("change", (event) => { state.direction = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
     $("resetButton").addEventListener("click", () => { state.direction = "all"; state.data = report.default_data; state.curve = "primary"; state.valueMode = "percent"; state.drawdownMode = "percent"; state.showMembers = report.kind === "portfolio"; state.showPeriods = true; state.windowStart = 0; state.windowEnd = 1; state.page = 1; state.search = ""; $("tradeSearch").value = ""; rerender(); });

@@ -112,9 +112,11 @@ as:
 
 Monte Carlo files are created only when the option is enabled. PNG files are
 created only when the optional chart dependency is available. The interactive
-HTML report always contains a Monte Carlo tab near the end; Warnings & provenance
-remains the final section. It explains when no simulation was supplied and renders
-the results when the option is enabled.
+HTML report uses true in-page tabs in one self-contained file, so selecting a tab
+shows only that panel rather than scrolling through one long page. It always
+contains a Monte Carlo tab near the end; Warnings & provenance remains the final
+tab. The report explains when no simulation was supplied and renders the results
+when the option is enabled.
 
 The interactive HTML report contains the platform's existing report views,
 including metrics, monthly performance, monthly drawdown, equity/drawdown,

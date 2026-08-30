@@ -94,6 +94,17 @@ class InteractiveReportTests(unittest.TestCase):
         self.assertIn('id="editTitleButton"', first)
         self.assertIn('id="reportTitleInput"', first)
         self.assertIn("title: state.title", first)
+        self.assertIn('role="tablist"', first)
+        self.assertIn('role="tab"', first)
+        self.assertEqual(first.count('role="tabpanel"'), 8)
+        self.assertEqual(first.count('data-tab-panel="'), 8)
+        self.assertRegex(first, r'<section class="section tab-panel" id="overview"[^>]*>')
+        self.assertRegex(first, r'<section class="section tab-panel" id="equity"[^>]* hidden>')
+        self.assertIn('activeTab: "overview"', first)
+        self.assertIn('tab: state.activeTab', first)
+        self.assertIn("function selectTab(tabId)", first)
+        self.assertIn('window.addEventListener("hashchange"', first)
+        self.assertIn("window.scrollTo(0, 0)", first)
         self.assertIn('id="valueMode" type="button"', first)
         self.assertNotIn('id="drawdownMode"', first)
         self.assertIn("Values in %", first)
@@ -208,14 +219,14 @@ class InteractiveReportTests(unittest.TestCase):
         nav = page.split('<nav class="nav"', 1)[1].split('</nav>', 1)[0]
 
         self.assertGreater(nav.index('href="#audit"'), nav.index('href="#monte-carlo"'))
-        self.assertTrue(nav.rstrip().endswith('href="#audit">Warnings & provenance</a>'))
+        self.assertTrue(nav.rstrip().endswith('>Warnings & provenance</a>'))
         self.assertGreater(
-            page.index('<section class="section" id="audit">'),
-            page.index('<section class="section" id="monte-carlo">'),
+            page.index('<section class="section tab-panel" id="audit"'),
+            page.index('<section class="section tab-panel" id="monte-carlo"'),
         )
         self.assertEqual(
-            page.rfind('<section class="section"'),
-            page.index('<section class="section" id="audit">'),
+            page.rfind('<section class="section tab-panel"'),
+            page.index('<section class="section tab-panel" id="audit"'),
         )
 
     def test_monte_carlo_table_keeps_mobile_scroller_inside_the_panel(self) -> None:

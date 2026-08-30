@@ -46,9 +46,10 @@ The interactive portfolio page combines the three sanitized example reports
 with equal raw weights (`1.0` each), normalized to one-third allocations and a
 `$300,000` portfolio initial capital. It includes the combined metrics,
 filterable member curves, monthly return/drawdown heat maps, trade analysis,
-and daily profit-correlation matrix. Its **Edit name** control changes only
-presentation metadata and persists the chosen name in the shareable URL
-fragment.
+and daily profit-correlation matrix. Its section controls are true in-page tabs
+within one HTML file, with only the selected panel visible. The **Edit name**
+control changes only presentation metadata and persists the chosen name in the
+shareable URL fragment.
 
 Monte Carlo outputs:
 
