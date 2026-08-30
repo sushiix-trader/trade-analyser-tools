@@ -69,7 +69,7 @@ class GuiWorkflowTests(unittest.TestCase):
                 self.assertIsNotNone(run.monte_carlo_chart_path)
                 self.assertTrue(run.monte_carlo_chart_path.exists())
 
-    def test_report_only_workflow_does_not_create_monte_carlo_artifacts(self) -> None:
+    def test_default_workflow_includes_complete_monte_carlo_report(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "fixture.xml"
@@ -84,6 +84,42 @@ class GuiWorkflowTests(unittest.TestCase):
             )
 
             run = run_analysis(GuiRunConfig(source=source, output_dir=root / "outputs"))
+
+            self.assertIsNotNone(run.monte_carlo_result)
+            self.assertEqual(run.monte_carlo_result.iterations, 10_000)
+            self.assertEqual(run.monte_carlo_result.config.method, "permutation")
+            self.assertEqual(run.monte_carlo_result.config.seed, 42)
+            self.assertTrue(run.monte_carlo_result.config.retain_paths)
+            self.assertEqual(run.monte_carlo_result.config.path_count, 500)
+            self.assertTrue(run.monte_carlo_summary_path.exists())
+            self.assertTrue(run.monte_carlo_json_path.exists())
+            self.assertTrue(run.report_path.exists())
+            report_html = run.report_path.read_text(encoding="utf-8")
+            self.assertIn("Monte Carlo robustness", report_html)
+            self.assertIn("P95 max drawdown", report_html)
+            self.assertIn("Drawdown depth", report_html)
+
+    def test_monte_carlo_can_be_explicitly_disabled(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "fixture.xml"
+            source.write_text(
+                """<?xml version='1.0'?><report><initialDeposit>100</initialDeposit>
+                <position><positionId>1</positionId><symbol>GUI_SYMBOL</symbol>
+                <type>buy</type><volume>1</volume>
+                <openTime>2024.01.01 10:00:00</openTime>
+                <closeTime>2024.01.01 11:00:00</closeTime>
+                <profit>25</profit></position></report>""",
+                encoding="utf-8",
+            )
+
+            run = run_analysis(
+                GuiRunConfig(
+                    source=source,
+                    output_dir=root / "outputs",
+                    monte_carlo=None,
+                )
+            )
 
             self.assertIsNone(run.monte_carlo_result)
             self.assertIsNone(run.monte_carlo_summary_path)

@@ -24,21 +24,39 @@ Resume only after the user supplies the clarification.
 1. Identify the operation: one report, report comparison, filtered report,
    sample-period analysis, portfolio, what-if sizing, chart/export, cache
    retrieval, or Monte Carlo.
-2. Unless the user asks for a narrower output, make the self-contained
-   interactive HTML report the primary deliverable for strategy and portfolio
-   analysis. Use the eager typed analyser result as its source; do not write a
-   custom HTML, chart, or metric script. Return the generated report path/link
-   and any concise summary requested by the user.
-3. Accept a path, bytes, or file-like object. Use the public `analyze_file()`
+2. Unless the user asks for a narrower output, produce the **complete report**:
+   the self-contained interactive HTML report is the primary deliverable for
+   strategy and portfolio analysis. Use the eager typed analyser result as its
+   source; do not write a custom HTML, chart, or metric script.
+3. A complete report includes the eager metrics, monthly tables, equity and
+   high-water-mark drawdown, drawdown depth × duration episodes, trade analysis,
+   portfolio daily/weekly correlation where applicable, and a deterministic
+   Monte Carlo robustness tab. Drawdown is already calculated by the eager
+   analyser; do not omit it because the user did not name it explicitly.
+4. For the standard report, run Monte Carlo after all requested member filters,
+   sample-period selection, and what-if sizing have been applied. Use
+   `DEFAULT_REPORT_MONTE_CARLO_CONFIG` (10,000 permutation iterations, seed
+   42, and 500 retained paths) and pass the resulting `MonteCarloResult` to
+   `save_interactive_report(..., monte_carlo=simulation)`. For a portfolio,
+   simulate `portfolio.portfolio_report`, the allocated aggregate completed
+   position stream; do not pool member drawdown episodes or manually net
+   trades. Honor an explicit request to skip Monte Carlo.
+5. Accept a path, bytes, or file-like object. Use the public `analyze_file()`
    or `load_report()`/`analyze()` seam as appropriate.
-4. Apply transformations through typed configuration and result methods. The
+6. Apply transformations through typed configuration and result methods. The
    canonical order is sample-period classification, member-level filtering,
    what-if sizing, and then metrics/curves/portfolio allocation.
-5. Return tables or typed result fields, and always surface warnings,
-   validation, provenance, and undefined metrics rather than hiding them.
-6. Use the existing serializers and chart APIs for artifacts. Add reusable
+7. Return tables or typed result fields, and always surface warnings,
+   validation, provenance, undefined metrics, and the Monte Carlo configuration
+   and key percentiles rather than hiding them.
+8. Use the existing serializers and chart APIs for artifacts. Add reusable
    package behavior and a regression test when the requested capability does
    not yet exist.
+
+The low-level interactive renderer remains a presentation seam: it does not
+launch an expensive simulation when `monte_carlo` is omitted. The default
+**agent report workflow** must compute and pass the simulation; an explicitly
+omitted simulation is rendered with a clear request-to-regenerate message.
 
 Canonical single-report entry point:
 
@@ -413,41 +431,50 @@ source bytes and configuration.
 
 For a default strategy or portfolio analysis, use the interactive report API as
 the preferred user-facing output. It is also the API for “turn one MT5 report
-into one webpage”. It
-accepts an already eager `AnalysisResult`/`PortfolioAnalysisResult`, or one raw
-HTML/XML path, bytes object, or file-like object. A raw report is still one
-strategy; a portfolio is passed as an already combined typed result.
+into one webpage”. It accepts an already eager
+`AnalysisResult`/`PortfolioAnalysisResult`, or one raw HTML/XML path, bytes
+object, or file-like object. A raw report is still one strategy; a portfolio is
+passed as an already combined typed result. The standard workflow supplies the
+deterministic Monte Carlo result rather than leaving the tab unpopulated.
 
 ```python
 from analyser import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     InteractiveReportConfig,
     PortfolioConfig,
+    analyze_file,
     analyze_portfolio,
-    render_interactive_report,
+    run_monte_carlo,
     save_interactive_report,
     serve_interactive_report,
 )
 
-# A raw report is parsed and analysed through the canonical eager API.
-html = render_interactive_report(
-    "tester_report.htm",
+# A raw report is parsed, eagerly analysed (including drawdown), simulated,
+# and rendered through the canonical APIs.
+result = analyze_file("tester_report.htm")
+simulation = run_monte_carlo(result.report, DEFAULT_REPORT_MONTE_CARLO_CONFIG)
+save_interactive_report(
+    result,
+    "results/strategy-review.html",
     InteractiveReportConfig(title="Strategy review"),
+    monte_carlo=simulation,
 )
 
-# Or reuse an eager result without recalculating the analysis.
-save_interactive_report(result, "results/strategy-review.html")
-
-# For a portfolio, combine through the typed portfolio API first, then render
-# the one report that the user can open in a browser without Python.
+# For a portfolio, combine first, then simulate its allocated aggregate report.
 portfolio = analyze_portfolio(members, PortfolioConfig(portfolio_initial_capital=100_000))
+portfolio_simulation = run_monte_carlo(
+    portfolio.portfolio_report,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+)
 save_interactive_report(
     portfolio,
     "results/portfolio-review.html",
     InteractiveReportConfig(title="Portfolio review"),
+    monte_carlo=portfolio_simulation,
 )
 
 # Optional local, non-blocking preview. Always close the handle when finished.
-server = serve_interactive_report(result)
+server = serve_interactive_report(result, monte_carlo=simulation)
 print(server.url)
 server.close()
 ```
@@ -495,22 +522,46 @@ report.
 
 ### Monte Carlo
 
-For “run a deterministic Monte Carlo test”, “permute trade order”, “bootstrap
-trades”, or “skip a percentage of trades”, use the public one-strategy API:
+Monte Carlo is part of the standard complete report unless the user explicitly
+asks to skip it. Use the shared report configuration so the default is
+reproducible and the interactive page has a bounded path visual:
 
 ```python
-from analyser import MonteCarloConfig, run_monte_carlo_file
+from analyser import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    MonteCarloConfig,
+    run_monte_carlo,
+    run_monte_carlo_file,
+    save_interactive_report,
+)
 
+# Reuse the already analysed/transformed report whenever possible.
+simulation = run_monte_carlo(
+    result.report,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+)
+save_interactive_report(
+    result,
+    "results/report.html",
+    monte_carlo=simulation,
+)
+
+# For a raw one-strategy input when no AnalysisResult exists yet:
 simulation = run_monte_carlo_file(
     source,
     MonteCarloConfig(iterations=10_000, method="permutation", seed=42),
 )
 ```
 
+`DEFAULT_REPORT_MONTE_CARLO_CONFIG` means 10,000 permutation iterations, seed
+42, `retain_paths=True`, and a deterministic 500-path retention bound.
 Monte Carlo operates on completed-position net profits. Permutation preserves
 the historical trade set and changes order; bootstrap is an explicit
 alternative. Fixed configuration and seed must produce identical results.
-Use `summary()`, aligned result arrays, and `to_json()`.
+Use `summary()`, aligned result arrays, and `to_json()`. For a portfolio, run
+the same simulation against `portfolio.portfolio_report` and pass it with the
+portfolio result to the renderer; this is a portfolio-level allocated trade
+sequence, not a pooled member drawdown distribution.
 
 For a simulated-path visual rather than a histogram, set
 `MonteCarloConfig(retain_paths=True, path_count=...)` and use
@@ -532,20 +583,26 @@ narrower output, follow this response path:
 1. Resolve any required clarification before touching the report.
 2. Eagerly analyse through the canonical typed API (`analyze_file()` for one
    report or `analyze_portfolio()` for multiple reports).
-3. Generate one self-contained interactive HTML report with
-   `save_interactive_report()` and return its path or accessible link.
-4. Give a concise summary of the main result and warnings, then suggest
-   relevant follow-up capabilities instead of writing a custom script. Typical
-   suggestions include long/short or time/session filters, in-sample versus
-   out-of-sample analysis, what-if sizing, portfolio combination and daily
-   profit correlation, equity/monthly/bar-chart exports, caching, and
-   deterministic Monte Carlo permutation/bootstrap analysis.
+3. Read the eager drawdown result (`result.drawdown_analysis` or
+   `portfolio.drawdown_analysis`) and run the deterministic complete-report
+   Monte Carlo configuration. For one report simulate `result.report`; for a
+   portfolio simulate `portfolio.portfolio_report`.
+4. Generate one self-contained interactive HTML report with
+   `save_interactive_report(..., monte_carlo=simulation)` and return its path
+   or accessible link. The page must include the Drawdown and Monte Carlo tabs
+   as well as the other standard analysis views.
+5. Give a concise summary of the main result, historical drawdown, Monte Carlo
+   percentiles/configuration, and warnings. Suggest relevant follow-up
+   capabilities instead of writing a custom script. Typical suggestions
+   include long/short or time/session filters, in-sample versus out-of-sample
+   analysis, what-if sizing, portfolio member analysis and daily/weekly profit
+   correlation, exports, and caching.
 
 Do not substitute a Markdown-only metric dump, a one-off chart, or a custom
 analysis script when the user has asked for a general report analysis. If the
-user explicitly asks for a table, chart, raw JSON/CSV, comparison, or Monte
-Carlo result, provide that requested typed API output in addition to or
-instead of the interactive report as appropriate.
+user explicitly asks for a table, chart, raw JSON/CSV, comparison, or a
+non-default Monte Carlo configuration, provide that requested typed API output
+in addition to or instead of the complete interactive report as appropriate.
 
 ## Contract guardrails
 

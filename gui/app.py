@@ -13,7 +13,7 @@ import threading
 import webbrowser
 from typing import Any
 
-from analyser import MonteCarloConfig
+from analyser import DEFAULT_REPORT_MONTE_CARLO_CONFIG, MonteCarloConfig
 
 from .workflow import GuiRunConfig, GuiRunResult, run_analysis
 
@@ -37,10 +37,11 @@ class ReportAnalyzerApp:
 
         self.source_var = self._tk.StringVar()
         self.output_var = self._tk.StringVar()
-        self.monte_carlo_var = self._tk.BooleanVar(value=False)
-        self.method_var = self._tk.StringVar(value="permutation")
-        self.iterations_var = self._tk.StringVar(value="1000")
-        self.seed_var = self._tk.StringVar(value="42")
+        default_monte_carlo = DEFAULT_REPORT_MONTE_CARLO_CONFIG
+        self.monte_carlo_var = self._tk.BooleanVar(value=True)
+        self.method_var = self._tk.StringVar(value=default_monte_carlo.method)
+        self.iterations_var = self._tk.StringVar(value=str(default_monte_carlo.iterations))
+        self.seed_var = self._tk.StringVar(value=str(default_monte_carlo.seed))
         self.path_chart_var = self._tk.BooleanVar(value=True)
         self.status_var = self._tk.StringVar(value="Select one MT5 HTML or XML report to begin.")
 
@@ -86,7 +87,7 @@ class ReportAnalyzerApp:
         ).grid(row=0, column=0, sticky="w")
         self._ttk.Label(
             root_frame,
-            text="Generate the canonical interactive report, then optionally run deterministic Monte Carlo simulations.",
+            text="Generate the complete canonical interactive report, including drawdown and deterministic Monte Carlo robustness.",
             style="Subtitle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 18))
 
@@ -110,7 +111,7 @@ class ReportAnalyzerApp:
         mc_panel.columnconfigure(4, weight=1)
         mc_check = self._ttk.Checkbutton(
             mc_panel,
-            text="Run Monte Carlo",
+            text="Run Monte Carlo (included by default)",
             variable=self.monte_carlo_var,
             command=self._update_monte_carlo_state,
         )

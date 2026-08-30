@@ -48,7 +48,9 @@ class MonteCarloConfig:
 
     Set ``retain_paths=True`` when a caller needs simulated equity paths for
     visualisation.  ``path_count`` keeps a deterministic, evenly-spaced subset
-    of iterations in memory; when omitted, every iteration is retained.
+    of iterations in memory; when omitted, every iteration is retained. The
+    standard complete interactive-report workflow uses
+    ``DEFAULT_REPORT_MONTE_CARLO_CONFIG``.
     """
 
     iterations: int = 1_000
@@ -92,6 +94,20 @@ class MonteCarloConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# The standard complete-report workflow uses a reproducible permutation run and
+# retains a bounded set of paths so the interactive HTML can show the
+# robustness distribution without retaining every simulated path.  Keep this
+# separate from ``MonteCarloConfig()``'s general-purpose API defaults: callers
+# that explicitly use the simulation API may still choose their own budget.
+DEFAULT_REPORT_MONTE_CARLO_CONFIG = MonteCarloConfig(
+    iterations=10_000,
+    method="permutation",
+    seed=42,
+    retain_paths=True,
+    path_count=500,
+)
 
 
 @dataclass(frozen=True)

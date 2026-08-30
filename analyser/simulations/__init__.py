@@ -5,6 +5,7 @@ Simulations are intentionally separate from the eager report analytics API.
 
 from .money_management import MoneyManagementResult, fixed_fractional, fixed_ratio
 from .monte_carlo import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     MonteCarloConfig,
     MonteCarloResult,
     run_monte_carlo,
@@ -23,6 +24,7 @@ __all__ = [
     "run_monte_carlo",
     "run_monte_carlo_file",
     "MonteCarloConfig",
+    "DEFAULT_REPORT_MONTE_CARLO_CONFIG",
     "MonteCarloResult",
     "fixed_fractional",
     "fixed_ratio",

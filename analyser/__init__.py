@@ -122,7 +122,13 @@ from .portfolio import (
     analyze_portfolio,
     combine_analyses,
 )
-from .simulations import MonteCarloConfig, MonteCarloResult, run_monte_carlo, run_monte_carlo_file
+from .simulations import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    MonteCarloConfig,
+    MonteCarloResult,
+    run_monte_carlo,
+    run_monte_carlo_file,
+)
 from .interactive import (
     InteractiveReportConfig,
     InteractiveReportServer,
@@ -188,6 +194,7 @@ __all__ = [
     "Metrics",
     "MonteCarloConfig",
     "MonteCarloResult",
+    "DEFAULT_REPORT_MONTE_CARLO_CONFIG",
     "MonthlyDrawdown",
     "MonthlyPerformance",
     "MonthlyPerformanceTable",

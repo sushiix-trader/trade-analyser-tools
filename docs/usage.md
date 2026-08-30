@@ -88,8 +88,9 @@ and stops are required.
   changes, margin, commission tiers, or nonlinear swap schedules. Historical
   average tick values are approximate and must retain provenance.
 - Monte Carlo randomizes completed-trade net-profit order or samples trades. It
-  does not simulate future tick paths, market microstructure, execution latency,
-  or portfolio-level Monte Carlo in the current v1 workflow.
+  does not simulate future tick paths, market microstructure, or execution
+  latency. The standard portfolio report permutes the allocated aggregate
+  completed-position stream; it is not a joint member-level market simulation.
 - Analysis is eager and in-memory by design. Very large reports can require
   substantial memory; multiprocessing and live execution are out of scope.
 
@@ -103,54 +104,61 @@ do not expose this parser directly as a public hostile-upload service. Future
 hardening should use a hardened XML parser such as `defusedxml`, enforce an input
 size limit, and add malicious-XML regression tests.
 
-## Generate one interactive webpage
+## Generate one complete interactive webpage
 
-The main report workflow can turn one MT5 HTML/XML report into one self-contained
-webpage. The page is generated from the eager typed result, so the browser is a
-retrieval and presentation layer rather than a second metric implementation. Its
-section navigation behaves as true in-page tabs: selecting a tab hides the other
-panels instead of making the user flick through one long page, while the complete
-report remains in the same HTML file. The selected tab and other view controls are
-kept in the URL fragment for reloads and shareable links. When a `MonteCarloResult`
-is supplied, the same page adds a dedicated Monte Carlo tab near the end of the
-report, immediately before the final Warnings & provenance section, with percentile
-summaries and any retained simulated paths.
+The standard report workflow turns one MT5 HTML/XML report into one
+self-contained webpage containing the full analysis: metrics, equity and
+high-water-mark drawdown, drawdown depth × duration, monthly tables, trade
+analysis, and deterministic Monte Carlo robustness. The page is generated from
+the eager typed result, so the browser is a retrieval and presentation layer
+rather than a second metric implementation. Its section navigation behaves as
+true in-page tabs: selecting a tab hides the other panels instead of making the
+user flick through one long page, while the complete report remains in the same
+HTML file. The selected tab and other view controls are kept in the URL fragment
+for reloads and shareable links. The Monte Carlo tab appears near the end of the
+report, immediately before the final Warnings & provenance section, with
+percentile summaries and retained simulated paths.
 
 ```python
 from analyser import (
+    AnalysisConfig,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     InteractiveReportConfig,
-    render_interactive_report,
+    analyze_file,
+    run_monte_carlo,
     save_interactive_report,
-    serve_interactive_report,
 )
 
-# A path, bytes object, or file-like object is accepted here.
+# Analyse eagerly; drawdown is calculated as part of this result.
+result = analyze_file("tester_report.htm", AnalysisConfig())
+simulation = run_monte_carlo(
+    result.report,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+)
 save_interactive_report(
-    "tester_report.htm",
+    result,
     "results/tester-report.html",
     InteractiveReportConfig(
         title="Tester report review",
         include_trade_table=True,
         table_page_size=50,
     ),
+    monte_carlo=simulation,
 )
-
-# You can also render an already eager result without reparsing it.
-html = render_interactive_report(result)
-
-# Attach an already-computed simulation to the report's Monte Carlo tab.
-from analyser import MonteCarloConfig, run_monte_carlo
-simulation = run_monte_carlo(
-    result.report,
-    MonteCarloConfig(iterations=10_000, method="permutation", seed=42, retain_paths=True, path_count=500),
-)
-html = render_interactive_report(result, monte_carlo=simulation)
-
-# Optional local preview; this returns immediately and binds to localhost.
-server = serve_interactive_report(result)
-print(server.url)
-# server.close() when the preview is no longer needed
 ```
+
+`DEFAULT_REPORT_MONTE_CARLO_CONFIG` uses 10,000 permutation iterations, seed
+42, and 500 retained paths. For a portfolio, analyse with
+`analyze_portfolio()`, run the same configuration on
+`portfolio.portfolio_report`, and pass that simulation with the portfolio result
+to `save_interactive_report()`.
+
+The lower-level renderer can still be used when a caller deliberately wants a
+report without a simulation: `render_interactive_report(result)` leaves the
+Monte Carlo tab available and displays a request-to-regenerate message. It does
+not silently start an expensive simulation. For a local preview,
+`serve_interactive_report(result, monte_carlo=simulation)` returns immediately
+and binds to localhost; call `server.close()` when finished.
 
 The default dark-blue page contains:
 
@@ -191,9 +199,11 @@ The default dark-blue page contains:
 - a filterable, sortable, paginated completed-position table; and
 - a daily/weekly realized-profit correlation table for portfolios, plus warnings,
   validation, provenance, and deterministic CSV/JSON/SVG/PNG exports.
-- an optional Monte Carlo tab near the end with probability of ruin, P5/median/P95/mean/worst
+- a Monte Carlo tab near the end with probability of ruin, P5/median/P95/mean/worst
   distributions for returns, equity, drawdown, and streaks, plus a retained-path
-  percentile chart when the simulation was run with path retention enabled.
+  percentile chart. The standard complete workflow supplies the deterministic
+  simulation and retained paths; the low-level renderer can be used without it
+  only when the caller deliberately opts out.
 
 The Monte Carlo tab describes the all-trades simulation supplied by the caller;
 changing the report's long/short or portfolio-member view does not rerun it.
@@ -212,10 +222,23 @@ for the same input and configuration. Use the package cache before rendering
 when repeated eager analysis retrieval is important:
 
 ```python
-from analyser import AnalysisStore, save_interactive_report
+from analyser import (
+    AnalysisStore,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    run_monte_carlo,
+    save_interactive_report,
+)
 
 artifact = AnalysisStore("data/analysis-cache").analyze_or_load("tester_report.htm")
-save_interactive_report(artifact.result, "results/cached-report.html")
+simulation = run_monte_carlo(
+    artifact.result.report,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+)
+save_interactive_report(
+    artifact.result,
+    "results/cached-report.html",
+    monte_carlo=simulation,
+)
 ```
 
 ## Filter a strategy
@@ -512,13 +535,24 @@ activated automatically.
 
 ## Monte Carlo estimates
 
-Monte Carlo is an optional simulation over completed-position net profits. It
-is separate from the primary report analysis and is deterministic for a fixed
-configuration and seed.
+The Monte Carlo API is an optional standalone capability, but it is included by
+default in the complete interactive report workflow unless the user explicitly
+asks to skip it. It operates over completed-position net profits, is separate
+from the primary eager metrics, and is deterministic for a fixed configuration
+and seed.
 
 ```python
-from analyser import MonteCarloConfig, run_monte_carlo_file
+from analyser import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    MonteCarloConfig,
+    run_monte_carlo,
+    run_monte_carlo_file,
+)
 
+# Preferred after eager analysis: no second report parse.
+simulation = run_monte_carlo(result.report, DEFAULT_REPORT_MONTE_CARLO_CONFIG)
+
+# Standalone raw-input form, or use a custom configuration.
 simulation = run_monte_carlo_file(
     "tester_report.htm",
     MonteCarloConfig(

@@ -21,8 +21,10 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from analyser import (  # noqa: E402
     AnalysisConfig,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     InteractiveReportConfig,
     analyze_file,
+    run_monte_carlo,
     save_interactive_report,
 )
 
@@ -228,6 +230,10 @@ def generate(output_dir: Path) -> dict[str, Path]:
         raise RuntimeError(
             f"expected {len(positions)} parsed positions, got {len(result.report.trades)}"
         )
+    monte_carlo = run_monte_carlo(
+        result.report,
+        DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    )
 
     outputs = {
         "source": source_path,
@@ -247,6 +253,7 @@ def generate(output_dir: Path) -> dict[str, Path]:
             ),
             table_page_size=25,
         ),
+        monte_carlo=monte_carlo,
     )
     outputs["markdown"].write_text(result.to_markdown(), encoding="utf-8")
     outputs["summary"].write_text(result.to_csv("drawdown_summary"), encoding="utf-8")

@@ -17,6 +17,7 @@ from typing import Any
 from analyser import (
     AnalysisConfig,
     AnalysisResult,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     InteractiveReportConfig,
     MonteCarloConfig,
     MonteCarloPathChartConfig,
@@ -33,20 +34,30 @@ _SUPPORTED_SUFFIXES = frozenset({".htm", ".html", ".xml"})
 _DEFAULT_PATH_COUNT = 500
 
 
+def _default_report_monte_carlo_config() -> MonteCarloConfig:
+    """Return the shared complete-report Monte Carlo configuration."""
+
+    return DEFAULT_REPORT_MONTE_CARLO_CONFIG
+
+
 @dataclass(frozen=True)
 class GuiRunConfig:
     """Inputs for one desktop report-generation run.
 
     ``source`` is one single-run MT5 HTML/XML report.  A GUI run always
-    produces the interactive HTML report and text serializers.  Monte Carlo is
-    opt-in and operates on the already parsed canonical report, so the GUI
-    does not parse the input a second time.
+    produces the complete interactive HTML report and text serializers.  The
+    default includes a deterministic permutation Monte Carlo run with bounded
+    retained paths.  Pass ``monte_carlo=None`` explicitly to opt out.  The
+    simulation operates on the already parsed canonical report, so the GUI does
+    not parse the input a second time.
     """
 
     source: Path | str
     output_dir: Path | str
     analysis_config: AnalysisConfig = field(default_factory=AnalysisConfig)
-    monte_carlo: MonteCarloConfig | None = None
+    monte_carlo: MonteCarloConfig | None = field(
+        default_factory=_default_report_monte_carlo_config
+    )
     generate_equity_chart: bool = True
     generate_monte_carlo_chart: bool = True
     report_title: str | None = None
@@ -72,8 +83,9 @@ class GuiRunConfig:
 class GuiRunResult:
     """Artifacts returned by :func:`run_analysis`.
 
-    The eager analyser result and optional Monte Carlo result remain available
-    to callers who want to inspect typed values.  Paths point to the generated
+    The eager analyser result and Monte Carlo result (unless explicitly
+    disabled) remain available to callers who want to inspect typed values.
+    Paths point to the generated
     presentation and serialization artifacts that a desktop user can open.
     """
 

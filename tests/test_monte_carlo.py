@@ -9,6 +9,7 @@ import numpy as np
 
 from analyser.models import Report, Trade, TradeSide
 from analyser import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     MonteCarloPathChartConfig,
     MonteCarloPathInterval,
     load_report,
@@ -41,6 +42,15 @@ def make_report(profits: list[float], initial_deposit: float = 100.0) -> Report:
 
 
 class MonteCarloTests(unittest.TestCase):
+    def test_complete_report_default_is_reproducible_and_path_bounded(self) -> None:
+        config = DEFAULT_REPORT_MONTE_CARLO_CONFIG
+
+        self.assertEqual(config.iterations, 10_000)
+        self.assertEqual(config.method, "permutation")
+        self.assertEqual(config.seed, 42)
+        self.assertTrue(config.retain_paths)
+        self.assertEqual(config.path_count, 500)
+
     def test_permutation_is_deterministic_and_preserves_trade_distribution(self) -> None:
         report = make_report([10.0, -5.0, 20.0, -8.0])
         config = MonteCarloConfig(iterations=100, seed=123)

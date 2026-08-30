@@ -382,6 +382,44 @@ class InteractiveReportTests(unittest.TestCase):
             2,
         )
 
+    def test_portfolio_monte_carlo_uses_the_allocated_portfolio_report(self) -> None:
+        right = analyze(
+            Report(
+                trades=[
+                    self._trade("right-1", datetime(2024, 1, 1, 10), 50.0, TradeSide.LONG),
+                    self._trade("right-2", datetime(2024, 1, 2, 10), -20.0, TradeSide.SHORT),
+                ],
+                initial_deposit=1_000.0,
+                currency="USD",
+                strategy_name="Right strategy",
+                timezone="UTC",
+            )
+        )
+        portfolio = combine_analyses(
+            [
+                AnalyzedPortfolioMember(
+                    "left",
+                    PortfolioMember("Left strategy", "Left", weight=0.5),
+                    self.result,
+                ),
+                AnalyzedPortfolioMember(
+                    "right",
+                    PortfolioMember("Right strategy", "Right", weight=0.5),
+                    right,
+                ),
+            ],
+            PortfolioConfig(portfolio_initial_capital=2_000.0),
+        )
+        simulation = run_monte_carlo(
+            portfolio.portfolio_report,
+            MonteCarloConfig(iterations=8, seed=7, retain_paths=True, path_count=4),
+        )
+
+        payload = self._payload(render_interactive_report(portfolio, monte_carlo=simulation))
+        self.assertEqual(payload["monte_carlo"]["scope"], "portfolio")
+        self.assertEqual(payload["monte_carlo"]["summary"]["trade_count"], 6)
+        self.assertEqual(payload["monte_carlo"]["summary"]["path_count"], 4)
+
     def test_public_portfolio_entry_point_can_feed_the_renderer(self) -> None:
         with TemporaryDirectory() as directory:
             left = Path(directory) / "left.xml"

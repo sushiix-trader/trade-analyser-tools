@@ -22,14 +22,22 @@ Use the `analyser` package as the canonical trading-report interface.
 ### Preferred user-facing report path
 
 When a user asks to analyse a strategy or portfolio without requesting a
-specific narrower output, generate the self-contained interactive HTML report
-as the primary deliverable. For one report, analyze eagerly with
-`analyze_file()` and pass the result to `save_interactive_report()`; for a
-portfolio, build it with `analyze_portfolio()` and then render it with
-`save_interactive_report()`. Do not replace this with a custom HTML, chart, or
-metric script. Return the report path/link along with any concise summary the
-user requested. Use raw typed fields, serializers, or standalone chart APIs
-when the user explicitly asks for those formats instead.
+specific narrower output, produce the **complete** self-contained interactive
+HTML report as the primary deliverable. The complete report includes the eager
+metrics, equity and high-water-mark drawdown, drawdown depth × duration
+episodes, monthly tables, trade analysis, portfolio daily/weekly correlation
+where applicable, and deterministic Monte Carlo robustness results. For one
+report, analyze eagerly with `analyze_file()`, run Monte Carlo on the final
+`result.report`, and pass both to `save_interactive_report()`; for a portfolio,
+build it with `analyze_portfolio()`, run Monte Carlo on
+`portfolio.portfolio_report`, and render both with `save_interactive_report()`.
+Use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` (10,000 permutation iterations, seed
+42, and 500 retained paths) unless the user explicitly chooses another
+configuration or asks to skip Monte Carlo. Do not replace this with a custom
+HTML, chart, metric, or randomisation script. Return the report path/link along
+with a concise summary of the main metrics, historical drawdown, Monte Carlo
+percentiles/configuration, and warnings. Use raw typed fields, serializers, or
+standalone chart APIs when the user explicitly asks for those formats instead.
 
 ### Standard path
 
@@ -47,6 +55,7 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.monthly`
 - `result.monthly_drawdown`
 - `result.monthly_performance` (year × Jan-Dec + compounded YTD table)
+- `result.drawdown_analysis` (depth × duration episodes and distributions)
 - `result.balance`
 - `result.equity`
 - `result.validation`
@@ -194,21 +203,37 @@ retrieval. Filter specifications/configuration and the source report hash are
 part of the cache key.
 
 For Monte Carlo robustness work, use the public simulation API rather than a
-custom randomisation script:
+custom randomisation script. It is part of the complete report workflow unless
+the user explicitly asks to skip it:
 
 ```python
-from analyser import MonteCarloConfig, run_monte_carlo_file
+from analyser import (
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    MonteCarloConfig,
+    run_monte_carlo,
+    run_monte_carlo_file,
+    save_interactive_report,
+)
 
+# Reuse the already analysed/transformed report to avoid a second parse.
+simulation = run_monte_carlo(result.report, DEFAULT_REPORT_MONTE_CARLO_CONFIG)
+save_interactive_report(result, destination, monte_carlo=simulation)
+
+# Or, when no AnalysisResult exists yet:
 simulation = run_monte_carlo_file(
     source,
     MonteCarloConfig(iterations=10_000, method="permutation", seed=42),
 )
 ```
 
-Monte Carlo operates on completed-position net profits. The permutation
-method preserves every historical trade and changes only its order; bootstrap
-sampling is an explicit alternative. Results are deterministic for a fixed
-configuration and expose `summary()`, aligned result arrays, and `to_json()`.
+`DEFAULT_REPORT_MONTE_CARLO_CONFIG` retains 500 paths for the interactive
+robustness visual. Monte Carlo operates on completed-position net profits. The
+permutation method preserves every historical trade and changes only its order;
+bootstrap sampling is an explicit alternative. Results are deterministic for a
+fixed configuration and expose `summary()`, aligned result arrays, and
+`to_json()`. For a portfolio, use `portfolio.portfolio_report`; this simulates
+the allocated aggregate completed-position sequence and does not pool member
+drawdown episodes or manually net trades.
 
 For path visuals, opt into deterministic path retention and use the chart API;
 do not reimplement randomisation or equity-path construction in a custom script:

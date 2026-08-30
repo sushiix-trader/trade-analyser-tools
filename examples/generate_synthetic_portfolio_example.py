@@ -33,10 +33,12 @@ except ModuleNotFoundError:  # pragma: no cover - only used by package imports
     )
 
 from analyser import (  # noqa: E402
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
     PortfolioConfig,
     PortfolioMember,
     InteractiveReportConfig,
     analyze_portfolio,
+    run_monte_carlo,
     save_interactive_report,
 )
 
@@ -129,6 +131,10 @@ def generate(output_dir: Path) -> dict[str, Path]:
         raise RuntimeError("portfolio members do not match the expected synthetic pair")
     if portfolio.drawdown_analysis.completed_episode_count < 1:
         raise RuntimeError("expected the allocated portfolio to contain drawdown episodes")
+    monte_carlo = run_monte_carlo(
+        portfolio.portfolio_report,
+        DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    )
 
     outputs = {
         "strategy_a_source": source_paths["a"],
@@ -149,6 +155,7 @@ def generate(output_dir: Path) -> dict[str, Path]:
             ),
             table_page_size=25,
         ),
+        monte_carlo=monte_carlo,
     )
     outputs["markdown"].write_text(portfolio.to_markdown(), encoding="utf-8")
     outputs["summary"].write_text(

@@ -99,16 +99,21 @@ decimal places**.
 ### Preferred analysis report
 
 When a strategy or portfolio is analysed without a more specific output format,
-the preferred user-facing result is one self-contained interactive HTML report.
-It contains the metrics, filters, equity/drawdown chart, a deterministic drawdown
-depth × duration analysis tab, monthly tables, trade analysis, and a portfolio
-correlation table with a daily/weekly frequency selector where applicable. The section
+the preferred user-facing result is one **complete** self-contained interactive
+HTML report. The standard workflow includes the metrics, filters,
+equity/drawdown chart, deterministic drawdown depth × duration analysis tab,
+monthly tables, trade analysis, a portfolio correlation table with a daily/weekly
+frequency selector where applicable, and deterministic Monte Carlo robustness
+results. Use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` for the reproducible default
+(10,000 permutation iterations, seed 42, and 500 retained paths). The section
 navigation is implemented as true in-page tabs: only the selected panel is shown,
 while all views remain in one self-contained HTML file. The selected tab is kept in
-the URL fragment for reloads and shareable view links. When a `MonteCarloResult` is
-supplied, the Monte Carlo tab appears near the end of the report, immediately
-before the final Warnings & provenance tab, with distribution summaries and
-retained-path bands. The report can be opened directly in a browser without Python.
+the URL fragment for reloads and shareable view links. The Monte Carlo tab appears
+near the end of the report, immediately before the final Warnings & provenance tab,
+with distribution summaries and retained-path bands. The report can be opened
+directly in a browser without Python. The low-level renderer remains able to
+render without a simulation when a caller explicitly opts out; it then displays a
+request-to-regenerate message rather than silently running Monte Carlo.
 
 - [Example equal-weight portfolio report](results/interactive-portfolio-report.html)
 - [Example single-strategy report](results/interactive-report.html)
@@ -269,12 +274,26 @@ Both commands should return JSON containing `"ok":true`.
 ### 5. Create analyser outputs
 
 Use the canonical analyser API first. Do not recalculate metrics in the Telegram
-transport layer:
+transport layer. For a complete report, include the eager drawdown analysis and
+run the shared deterministic Monte Carlo configuration before rendering:
 
 ```python
-from analyser import AnalysisConfig, analyze_file, save_equity_drawdown_chart
+from analyser import (
+    AnalysisConfig,
+    DEFAULT_REPORT_MONTE_CARLO_CONFIG,
+    analyze_file,
+    run_monte_carlo,
+    save_equity_drawdown_chart,
+    save_interactive_report,
+)
 
 result = analyze_file("tester_report.htm", AnalysisConfig())
+simulation = run_monte_carlo(result.report, DEFAULT_REPORT_MONTE_CARLO_CONFIG)
+save_interactive_report(
+    result,
+    "/tmp/complete-report.html",
+    monte_carlo=simulation,
+)
 save_equity_drawdown_chart(result, "/tmp/equity-drawdown.png")
 
 message = result.to_markdown()

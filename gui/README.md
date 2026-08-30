@@ -62,17 +62,18 @@ trade-analyser-gui
    Strategy Tester report (`.htm`, `.html`, or `.xml`).
 2. Choose the output folder. The default suggested by the GUI is an
    `analysis-output` folder beside the selected report.
-3. Leave **Run Monte Carlo** unchecked for the eager report only, or enable it
-   to expose the deterministic simulation controls.
+3. Leave **Run Monte Carlo** enabled (the default) for the complete report.
+   Uncheck it only when you explicitly want to skip the robustness simulation.
 4. Choose `permutation` or `bootstrap`, set the iteration count and seed, and
-   optionally generate the path chart.
+   optionally generate the standalone path chart. The default complete-report
+   settings are permutation, 10,000 iterations, seed 42, and 500 retained paths
+   for the interactive HTML visual.
 5. Click **Generate report**. The GUI performs the work off the Tkinter event
    loop, opens the generated HTML report in the default browser, and lists all
-   output paths in the window. When Monte Carlo is enabled, the opened report
-   includes a separate **Monte Carlo** tab with distribution summaries and a
-   retained-path chart. The same report also includes the deterministic
-   **Drawdown** tab with depth × duration episodes and historical percentile
-   distributions.
+   output paths in the window. The opened report includes a separate
+   **Monte Carlo** tab with distribution summaries and a retained-path chart by
+   default. The same report also includes the deterministic **Drawdown** tab
+   with depth × duration episodes and historical percentile distributions.
 
 The browser report is a self-contained HTML file. It can be opened and shared
 without running Python or starting a server.
@@ -96,6 +97,8 @@ The simulation is run from the already parsed canonical report held by the
 Monte Carlo remains a one-strategy feature in this first GUI slice. Portfolio
 Monte Carlo, skipped-trade stress controls, and ruin-threshold controls remain
 available through the analyser API but are not exposed as GUI inputs yet.
+The framework-free `GuiRunConfig` also uses the complete-report Monte Carlo
+default; pass `monte_carlo=None` explicitly to opt out.
 
 ## Generated outputs
 
@@ -112,13 +115,14 @@ as:
 | `my-strategy-monte-carlo.json` | Full deterministic Monte Carlo serializer |
 | `my-strategy-monte-carlo-paths.png` | Optional simulated paths, intervals, drawdown, and streak panels |
 
-Monte Carlo files are created only when the option is enabled. PNG files are
-created only when the optional chart dependency is available. The interactive
-HTML report uses true in-page tabs in one self-contained file, so selecting a tab
-shows only that panel rather than scrolling through one long page. It always
-contains a Monte Carlo tab near the end; Warnings & provenance remains the final
-tab. The report explains when no simulation was supplied and renders the results
-when the option is enabled.
+Monte Carlo files are created by default; pass `monte_carlo=None` to the
+framework-free workflow or uncheck the GUI option to explicitly omit them. PNG
+files are created only when the optional chart dependency is available. The
+interactive HTML report uses true in-page tabs in one self-contained file, so
+selecting a tab shows only that panel rather than scrolling through one long
+page. It always contains a Monte Carlo tab near the end; Warnings & provenance
+remains the final tab. When Monte Carlo is explicitly omitted, the report shows
+clear instructions to run it and regenerate the page.
 
 The interactive HTML report contains the platform's existing report views,
 including metrics, monthly performance, monthly drawdown, equity/drawdown, the
@@ -138,10 +142,13 @@ run = run_analysis(
     GuiRunConfig(
         source="reports/my-strategy.html",
         output_dir="analysis-output",
+        # Omit this argument to use the complete-report default.
         monte_carlo=MonteCarloConfig(
-            iterations=1_000,
+            iterations=10_000,
             method="permutation",
             seed=42,
+            retain_paths=True,
+            path_count=500,
         ),
         generate_monte_carlo_chart=True,
     )
@@ -149,7 +156,7 @@ run = run_analysis(
 
 print(run.report_path)
 print(run.analysis_result.metrics.net_profit)
-print(run.monte_carlo_result.summary() if run.monte_carlo_result else "Monte Carlo disabled")
+print(run.monte_carlo_result.summary() if run.monte_carlo_result else "Monte Carlo explicitly disabled")
 ```
 
 This is an orchestration example, not a replacement for the public analyser
