@@ -28,6 +28,8 @@ print(result.metrics.calmar_ratio)
 print(result.metrics.custom_trade_event_sharpe)
 print(result.metrics.daily_sharpe_ratio)
 print(result.metrics.annualized_daily_sharpe_ratio)
+print(result.drawdown_analysis.depth_distribution.p95)
+print(result.drawdown_analysis.duration_distribution.p95)
 
 for month in result.monthly:
     print(month.period, month.pnl, month.return_on_starting_equity)
@@ -44,8 +46,8 @@ pointers are rejected explicitly.
 
 Every analysis is eager and deterministic. Values can be retrieved later from
 `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
-`result.monthly_performance`, `result.balance`, `result.equity`,
-`result.warnings`, and `result.provenance`.
+`result.monthly_performance`, `result.drawdown_analysis`, `result.balance`,
+`result.equity`, `result.warnings`, and `result.provenance`.
 
 ## Limitations and assumptions
 
@@ -167,6 +169,14 @@ The default dark-blue page contains:
   sample-period bands, and an optional portfolio-only toggle;
 - grouped trade analysis by opening/closing hour or day of week, with the
   selected profit measure on the y-axis and timing buckets on the x-axis;
+- a deterministic **Drawdown** tab after Equity. It extracts completed and
+  currently open high-water-mark drawdown episodes from the selected curve,
+  reports depth and duration distributions at P50/P90/P95/P99, ranks each
+  episode with ascending percentile, strict-tail rarity, and neutral ordinal rank,
+  and shows a depth × elapsed-duration scatter plot plus separate per-episode
+  distribution bars sorted by value, with vertical P5, median, and P95 markers.
+  The diagrams stack vertically and fit the available width on narrow screens
+  instead of requiring horizontal scrolling;
 - a light-shaded, full-width year × Jan–Dec × YTD monthly return table with a
   separate maximum-intramonth-drawdown table stacked directly underneath it.
   Drawdown values are displayed as negative percentages, every defined cell is
@@ -179,7 +189,7 @@ The default dark-blue page contains:
   name is stored in the URL fragment, survives reloads, is included in JSON
   exports, and is copied by **Copy view link**;
 - a filterable, sortable, paginated completed-position table; and
-- a daily realized-profit correlation table for portfolios, plus warnings,
+- a daily/weekly realized-profit correlation table for portfolios, plus warnings,
   validation, provenance, and deterministic CSV/JSON/SVG/PNG exports.
 - an optional Monte Carlo tab near the end with probability of ruin, P5/median/P95/mean/worst
   distributions for returns, equity, drawdown, and streaks, plus a retained-path
@@ -287,6 +297,53 @@ linearly from the report; broker-specific commission tiers, changing swap
 schedules, trade-date FX conversion, spread, slippage, and other nonlinear
 execution effects are not modelled.
 
+## Drawdown depth × duration
+
+The drawdown API implements the descriptive depth-versus-duration framework from
+the Obsidian trading notes. It consumes the selected primary curve exactly as
+supplied: no interpolation, resampling, or Monte Carlo randomisation is used.
+Each episode starts at the high-water point before the decline, ends at the first
+later observation that recovers that high-water value, or remains `open` when the
+curve ends underwater. Open episodes are retained and ranked when a completed
+history exists, but are excluded from the historical reference distributions.
+
+```python
+from analyser import AnalysisConfig, analyze_file
+
+result = analyze_file("tester_report.htm", AnalysisConfig())
+drawdowns = result.drawdown_analysis
+
+print(drawdowns.completed_episode_count)
+print(drawdowns.current_episode)
+print(drawdowns.depth_distribution.p50)
+print(drawdowns.depth_distribution.p95)
+print(drawdowns.duration_distribution.p95)
+
+for episode in drawdowns.episodes:
+    print(
+        episode.status,
+        episode.depth_percent,       # positive typed magnitude
+        episode.duration_days,
+        episode.depth_percentile,
+        episode.depth_tail_rarity_percent,
+        episode.duration_percentile,
+    )
+```
+
+Percentage and money depth are positive magnitudes in the typed result; the
+interactive and Markdown report views display depth as a negative decline.
+`duration_days` is exact elapsed time between the peak and recovery/current end;
+`duration_periods` counts supplied curve observation transitions, preserving
+duplicate timestamps. The fixed v1 historical percentiles use deterministic
+linear interpolation. `to_csv("drawdown_summary")` and
+`to_csv("drawdown_episodes")` provide separate export sections; the same data is
+included in JSON, Markdown, and interactive HTML reports.
+
+For portfolios, `portfolio.drawdown_analysis` is the allocated portfolio curve.
+Each `PortfolioMemberResult` also exposes clearly labelled
+`raw_drawdown_analysis` and `allocated_drawdown_analysis`; member analyses and
+portfolio curves are never pooled into one reference distribution.
+
 ## Build a portfolio
 
 One report represents one strategy. Portfolio members remain separate and
@@ -332,27 +389,32 @@ Portfolio results expose:
 - Portfolio-level metrics and curves
 - Per-strategy metrics and allocated curves
 - Monthly return and contribution matrices
-- Daily profit correlation and covariance
+- Daily and weekly profit correlation and covariance
 - Warnings for differing active periods
 
 Reports must use a compatible currency and timezone. Filters, sample periods,
 and what-if sizing belong on each `PortfolioMember` and are applied before
 portfolio allocation.
 
-### Daily profit correlation
+### Daily and weekly profit correlation
 
 ```python
-correlation = portfolio.correlations.daily_profit
+daily = portfolio.correlations.daily_profit
+weekly = portfolio.correlations.weekly_profit
 
-print(correlation.matrix)
-print(correlation.series)
-print(correlation.allocated_series)
-print(correlation.observations)
+print(daily.matrix)
+print(weekly.matrix)
+print(weekly.series)
+print(weekly.allocated_series)
+print(weekly.observations)
 ```
 
-The correlation is based on daily realized net profit, aligned over the
-strategies’ overlapping active dates. Undefined cells are returned as `None`
-with diagnostics.
+Daily correlation uses canonical realized net profit aligned over the strategies’
+overlapping active dates. Weekly correlation starts with that aligned daily
+series and sums each strategy into Monday–Sunday calendar weeks using the report
+timezone. Undefined cells are returned as `None` with diagnostics. The
+interactive portfolio report exposes the same choice through its Daily/Weekly
+frequency selector.
 
 ### Trade-profit bar charts
 
@@ -508,6 +570,10 @@ save_equity_drawdown_chart(
 save_correlation_heatmap(
     portfolio.correlations.daily_profit,
     "daily-profit-correlation.png",
+)
+save_correlation_heatmap(
+    portfolio.correlations.weekly_profit,
+    "weekly-profit-correlation.png",
 )
 save_monthly_performance_table(
     portfolio,

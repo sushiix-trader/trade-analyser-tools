@@ -1162,15 +1162,24 @@ def save_monte_carlo_paths(
     return path
 
 
-def _correlation_source(source: Any) -> tuple[AnalysisMatrix, str, int | None]:
+def _correlation_source(source: Any) -> tuple[AnalysisMatrix, str, int | None, str]:
     """Resolve a labelled correlation matrix without recalculating it."""
 
     if isinstance(source, AnalysisMatrix):
-        return source, source.value_type, None
+        frequency = "weekly" if "weekly" in source.value_type.lower() else "daily"
+        return source, source.value_type, None, frequency
     matrix = getattr(source, "matrix", None)
     if not isinstance(matrix, AnalysisMatrix):
         raise TypeError("source must be an AnalysisMatrix or correlation result")
-    return matrix, str(getattr(source, "scope", "correlation")), getattr(source, "observations", None)
+    frequency = str(getattr(source, "frequency", "daily"))
+    if frequency not in {"daily", "weekly"}:
+        frequency = "weekly" if "weekly" in matrix.value_type.lower() else "daily"
+    return (
+        matrix,
+        str(getattr(source, "scope", "correlation")),
+        getattr(source, "observations", None),
+        frequency,
+    )
 
 
 def render_correlation_heatmap(
@@ -1183,7 +1192,7 @@ def render_correlation_heatmap(
 ) -> bytes:
     """Render a deterministic labelled correlation heat map.
 
-    ``source`` is a ``DailyProfitCorrelationResult`` or ``AnalysisMatrix``.
+    ``source`` is a daily/weekly profit correlation result or ``AnalysisMatrix``.
     The matrix is consumed as-is; this function never recalculates correlation.
     Undefined cells are grey and rendered as ``N/A``.  Display precision is
     configurable, while the source matrix retains its original values.
@@ -1195,7 +1204,7 @@ def render_correlation_heatmap(
         raise ValueError("dpi must be positive")
     if decimals < 0:
         raise ValueError("decimals must be non-negative")
-    matrix, scope, observations = _correlation_source(source)
+    matrix, scope, observations, frequency = _correlation_source(source)
     if matrix.shape[0] != matrix.shape[1]:
         raise ValueError("correlation heat maps require a square matrix")
     if matrix.row_labels != matrix.column_labels:
@@ -1209,7 +1218,7 @@ def render_correlation_heatmap(
     size = max(5.5, min(12.0, 3.8 + 0.65 * len(matrix.row_labels)))
     subtitle = f"{scope.replace('_', ' ').title()}"
     if observations is not None:
-        subtitle += f" | {observations:,} daily observations"
+        subtitle += f" | {observations:,} {frequency} observations"
 
     with matplotlib.rc_context(
         {
@@ -1225,7 +1234,7 @@ def render_correlation_heatmap(
         axis.set_yticks(np.arange(len(matrix.row_labels)), labels=matrix.row_labels)
         axis.set_xlabel("Strategy")
         axis.set_ylabel("Strategy")
-        title_text = title or f"Daily profit correlation heat map\n{subtitle}"
+        title_text = title or f"{frequency.title()} profit correlation heat map\n{subtitle}"
         if len(title_text) > 42 and " — " in title_text:
             title_text = title_text.replace(" — ", " —\n", 1)
         axis.set_title(title_text, fontweight="bold", fontsize=12, pad=14)
@@ -1248,12 +1257,16 @@ def render_correlation_heatmap(
         axis.grid(which="minor", color="white", linestyle="-", linewidth=1.5)
         axis.tick_params(which="minor", bottom=False, left=False)
         output = io.BytesIO()
-        fig.savefig(
-            output,
-            format=image_format.lower(),
-            dpi=dpi,
-            metadata={"Software": "trade-analyser-tools"},
-        )
+        save_kwargs = {
+            "format": image_format.lower(),
+            "dpi": dpi,
+        }
+        # Matplotlib accepts the Software metadata key for PNG but not for
+        # SVG. Keep both supported output formats deterministic without
+        # passing an invalid writer-specific key.
+        if image_format.lower() == "png":
+            save_kwargs["metadata"] = {"Software": "trade-analyser-tools"}
+        fig.savefig(output, **save_kwargs)
         plt.close(fig)
     return output.getvalue()
 

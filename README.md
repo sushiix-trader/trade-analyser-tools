@@ -34,9 +34,10 @@ of the same reproducible analysis results.
 - **“What does the portfolio of three strategies look like?”**
 - **“What are the 95% Monte Carlo estimates of returns?”**
 - **“What are the monthly returns and monthly drawdowns?”**
+- **“What do the historical drawdown depth and duration distributions look like, and is the current drawdown unusual?”**
 - **“What are the profit factor, recovery factor, Calmar ratio, and Sharpe?”**
 - **“What if every trade risks 1% of a $100,000 account?”**
-- **“How correlated are the strategies’ daily profits?”**
+- **“How correlated are the strategies’ daily or weekly profits?”**
 - **“How did the strategy perform in-sample versus out-of-sample?”**
 - **“Can I compare an XML report with its HTML equivalent?”**
 
@@ -50,6 +51,31 @@ cd trade-analyser-tools && pip install -e ".[charts]"
 See the [API usage guide](docs/usage.md) for the complete workflow.
 
 For the desktop application, see the [GUI guide](gui/README.md).
+
+## Repository safety hooks
+
+This repository includes dependency-free `pre-commit` and `pre-push` hooks.
+They scan staged and outgoing Git content for high-confidence secrets,
+user-specific paths, email addresses, raw MT5 report payloads, and report-like
+files that are not explicitly allowlisted as sanitized or synthetic examples.
+The pre-push check also scans blobs from commits that are being pushed, including
+files that were added and deleted before the push.
+
+Enable the hooks once after cloning:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+Run the same audit manually, including ignored files in the working tree:
+
+```bash
+python3 scripts/repo_guard.py audit
+```
+
+Keep private reports and account data outside this repository. The committed
+report fixtures are sanitized or synthetic examples only; the hook is a safety
+net and does not replace human review.
 
 ## Inputs
 
@@ -74,8 +100,9 @@ decimal places**.
 
 When a strategy or portfolio is analysed without a more specific output format,
 the preferred user-facing result is one self-contained interactive HTML report.
-It contains the metrics, filters, equity/drawdown chart, monthly tables, trade
-analysis, and portfolio correlation heat map where applicable. The section
+It contains the metrics, filters, equity/drawdown chart, a deterministic drawdown
+depth × duration analysis tab, monthly tables, trade analysis, and a portfolio
+correlation table with a daily/weekly frequency selector where applicable. The section
 navigation is implemented as true in-page tabs: only the selected panel is shown,
 while all views remain in one self-contained HTML file. The selected tab is kept in
 the URL fragment for reloads and shareable view links. When a `MonteCarloResult` is
@@ -85,6 +112,7 @@ retained-path bands. The report can be opened directly in a browser without Pyth
 
 - [Example equal-weight portfolio report](results/interactive-portfolio-report.html)
 - [Example single-strategy report](results/interactive-report.html)
+- [Synthetic drawdown example report](results/synthetic-drawdown-report.html)
 
 The report name can be set during generation with
 `InteractiveReportConfig(title="My report")`, or changed in-browser with
@@ -102,12 +130,15 @@ Text and table examples:
 - [Rounded JSON result](results/analysis.json)
 - [Monthly returns](results/monthly.csv)
 - [Monthly drawdown](results/monthly-drawdown.csv)
+- [Drawdown depth × duration summary](results/drawdown-summary.csv)
+- [Drawdown depth × duration episodes](results/drawdown-episodes.csv)
 - [Year × Jan-Dec × compounded YTD performance](results/monthly-performance.csv)
 - [Long-only analysis](results/long-only.md)
 - [Flat-lot what-if analysis](results/what-if-flat-lot.md)
 - [In-sample/out-of-sample analysis](results/sample-periods.md)
 - [Portfolio report](results/portfolio.md)
 - [Daily profit correlation table](results/daily-profit-correlation.csv)
+- Weekly profit correlation is available as `portfolio.correlations.weekly_profit` and in the interactive portfolio selector.
 - [Trade-profit bar chart examples](results/trade-profit-bars/README.md)
 - [Monte Carlo p5/p50/p95 summary](results/monte-carlo-summary.md)
 - [Interactive single-report webpage](results/interactive-report.html)
@@ -165,9 +196,10 @@ Visual examples:
 
 [![Monte Carlo simulated paths and percentile bands](results/monte-carlo-paths.png)](results/monte-carlo-paths.png)
 
-The API also exposes balance/equity curves, validation, warnings, provenance,
-JSON/Markdown/CSV serializers, deterministic cache artifacts, portfolio
-matrices, covariance, and winning/losing streak distributions. See the
+The API also exposes balance/equity curves, deterministic drawdown episodes and
+percentile distributions, validation, warnings, provenance, JSON/Markdown/CSV
+serializers, deterministic cache artifacts, portfolio matrices, covariance, and
+winning/losing streak distributions. See the
 [complete example index](results/README.md).
 
 For installation and end-to-end API workflows, use the separate

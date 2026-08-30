@@ -36,8 +36,11 @@ from .correlation import (
     CorrelationResults,
     DailyProfitCorrelationResult,
     build_daily_profit_correlation,
+    build_weekly_profit_correlation,
+    build_weekly_profit_correlation_from_daily,
 )
 from .diagnostics import Diagnostic, ValidationResult
+from .drawdown import DrawdownAnalysis, analyze_drawdowns
 from .equity import CurveSeries
 from .filters import FilterConfig, TradeFilter
 from .errors import (
@@ -148,6 +151,8 @@ class PortfolioMemberResult:
     analysis: AnalysisResult
     raw_curve: CurveResult
     allocated_curve: CurveResult
+    raw_drawdown_analysis: DrawdownAnalysis
+    allocated_drawdown_analysis: DrawdownAnalysis
     active_start: datetime | None
     active_end: datetime | None
 
@@ -173,6 +178,7 @@ class PortfolioPeriodResult:
     analysis: AnalysisResult
     daily_profit_correlation: DailyProfitCorrelationResult
     warnings: tuple[Diagnostic, ...] = ()
+    weekly_profit_correlation: DailyProfitCorrelationResult | None = None
 
     @property
     def report(self) -> Report:
@@ -199,6 +205,10 @@ class PortfolioPeriodResult:
         return self.analysis.monthly_drawdown
 
     @property
+    def drawdown_analysis(self) -> DrawdownAnalysis:
+        return self.analysis.drawdown_analysis
+
+    @property
     def monthly_performance(self) -> MonthlyPerformanceTable:
         return self.analysis.monthly_performance
 
@@ -216,16 +226,39 @@ class PortfolioPeriodResult:
             "window": self.window.to_dict(),
             "analysis": self.analysis.to_dict(),
             "daily_profit_correlation": self.daily_profit_correlation.to_dict(),
+            "weekly_profit_correlation": (
+                self.weekly_profit_correlation.to_dict()
+                if self.weekly_profit_correlation is not None
+                else None
+            ),
             "warnings": [warning.to_dict() for warning in self.warnings],
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PortfolioPeriodResult":
+    def from_dict(
+        cls,
+        payload: dict[str, Any],
+        *,
+        minimum_observations: int = 2,
+        warning_observations: int = 12,
+    ) -> "PortfolioPeriodResult":
+        daily = DailyProfitCorrelationResult.from_dict(payload["daily_profit_correlation"])
+        weekly_data = payload.get("weekly_profit_correlation")
+        weekly = (
+            DailyProfitCorrelationResult.from_dict(weekly_data)
+            if isinstance(weekly_data, dict)
+            else build_weekly_profit_correlation_from_daily(
+                daily,
+                minimum_observations=minimum_observations,
+                warning_observations=warning_observations,
+            )
+        )
         return cls(
             name=payload["name"],
             window=PeriodWindow.from_dict(payload["window"]),
             analysis=AnalysisResult.from_dict(payload["analysis"]),
-            daily_profit_correlation=DailyProfitCorrelationResult.from_dict(payload["daily_profit_correlation"]),
+            daily_profit_correlation=daily,
+            weekly_profit_correlation=weekly,
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
         )
 
@@ -249,6 +282,7 @@ class PortfolioAnalysisResult:
     source_equity: CurveResult | None
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
+    drawdown_analysis: DrawdownAnalysis
     monthly_performance: MonthlyPerformanceTable
     trade_profit: TradeProfitAnalysis
     raw_trade_profit: dict[str, TradeProfitAnalysis]
@@ -280,12 +314,24 @@ class PortfolioAnalysisResult:
         return self.monthly_drawdown
 
     @property
+    def portfolio_drawdown_analysis(self) -> DrawdownAnalysis:
+        return self.drawdown_analysis
+
+    @property
     def daily_profit_correlation(self) -> AnalysisMatrix:
         return self.correlations.daily_profit.matrix
 
     @property
     def daily_profit_series(self):
         return self.correlations.daily_profit.series
+
+    @property
+    def weekly_profit_correlation(self) -> DailyProfitCorrelationResult | None:
+        return self.correlations.weekly_profit
+
+    @property
+    def weekly_profit_series(self):
+        return self.correlations.weekly_profit.series if self.correlations.weekly_profit else {}
 
     def to_dict(self) -> dict[str, Any]:
         payload = to_primitive(self)
@@ -314,6 +360,11 @@ class PortfolioAnalysisResult:
             "correlation": self.correlation_matrix,
             "covariance": self.covariance_matrix,
             "daily_profit_correlation": self.correlations.daily_profit.matrix,
+            "weekly_profit_correlation": (
+                self.correlations.weekly_profit.matrix
+                if self.correlations.weekly_profit is not None
+                else AnalysisMatrix((), (), (), "weekly_profit_correlation")
+            ),
         }
         if section in matrix_map:
             return matrix_map[section].to_csv()
@@ -361,6 +412,50 @@ class PortfolioAnalysisResult:
                     row.drawdown_duration_days,
                 ])
             return output.getvalue()
+        if section == "drawdown_summary":
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow(["axis", "unit", "count", "minimum", "p50", "p90", "p95", "p99", "maximum"])
+            distributions = (
+                ("depth_percent", self.drawdown_analysis.depth_distribution),
+                ("depth_money", self.drawdown_analysis.depth_money_distribution),
+                ("duration_days", self.drawdown_analysis.duration_distribution),
+                ("duration_periods", self.drawdown_analysis.duration_periods_distribution),
+            )
+            for axis, distribution in distributions:
+                writer.writerow([
+                    axis, distribution.unit, distribution.count, distribution.minimum,
+                    distribution.p50, distribution.p90, distribution.p95,
+                    distribution.p99, distribution.maximum,
+                ])
+            return output.getvalue()
+        if section == "drawdown_episodes":
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow([
+                "episode_id", "status", "peak_index", "trough_index", "end_index",
+                "recovery_index", "peak_time", "trough_time", "recovery_time", "end_time",
+                "peak_value", "trough_value", "recovery_value", "end_value",
+                "depth_money", "depth_percent", "duration_days", "duration_periods",
+                "depth_percentile", "depth_tail_rarity_percent", "depth_ordinal_rank",
+                "duration_percentile", "duration_tail_rarity_percent", "duration_ordinal_rank",
+            ])
+            for episode in self.drawdown_analysis.episodes:
+                writer.writerow([
+                    episode.episode_id, episode.status, episode.peak_index, episode.trough_index,
+                    episode.end_index, episode.recovery_index,
+                    episode.peak_time.isoformat() if episode.peak_time else None,
+                    episode.trough_time.isoformat() if episode.trough_time else None,
+                    episode.recovery_time.isoformat() if episode.recovery_time else None,
+                    episode.end_time.isoformat() if episode.end_time else None,
+                    episode.peak_value, episode.trough_value, episode.recovery_value,
+                    episode.end_value, episode.depth_money, episode.depth_percent,
+                    episode.duration_days, episode.duration_periods, episode.depth_percentile,
+                    episode.depth_tail_rarity_percent, episode.depth_ordinal_rank,
+                    episode.duration_percentile, episode.duration_tail_rarity_percent,
+                    episode.duration_ordinal_rank,
+                ])
+            return output.getvalue()
         raise ValueError(f"Unknown portfolio CSV section: {section}")
 
     def to_markdown(self) -> str:
@@ -377,6 +472,27 @@ class PortfolioAnalysisResult:
         for row in self.monthly:
             value = "NA" if row.return_on_starting_equity is None else f"{row.return_on_starting_equity:.6%}"
             lines.append(f"| {row.period} | {row.pnl:.2f} | {value} |")
+        lines.extend([
+            "", "## Drawdown depth × duration", "",
+            f"Curve: `{self.drawdown_analysis.curve_source}` / `{self.drawdown_analysis.curve_basis}`; "
+            f"completed episodes: {self.drawdown_analysis.completed_episode_count}; "
+            f"current: {'underwater' if self.drawdown_analysis.current_episode else 'not underwater'}.",
+            "", "| Episode | Status | Depth | Duration | Depth percentile | Duration percentile |",
+            "|---:|---|---:|---:|---:|---:|",
+        ])
+        episodes = sorted(
+            self.drawdown_analysis.episodes,
+            key=lambda episode: (episode.status != "open", -episode.episode_id),
+        )
+        for episode in episodes:
+            depth = "NA" if episode.depth_percent is None else f"-{episode.depth_percent:.2f}%"
+            duration = "NA" if episode.duration_days is None else f"{episode.duration_days:.2f} d"
+            depth_rank = "NA" if episode.depth_percentile is None else f"{episode.depth_percentile:.2f}%"
+            duration_rank = "NA" if episode.duration_percentile is None else f"{episode.duration_percentile:.2f}%"
+            lines.append(
+                f"| {episode.episode_id} | {episode.status} | {depth} | {duration} | "
+                f"{depth_rank} | {duration_rank} |"
+            )
         return "\n".join(lines) + "\n"
 
     def with_weights(self, weights: dict[str, float]) -> "PortfolioAnalysisResult":
@@ -436,8 +552,12 @@ class PortfolioAnalysisResult:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "PortfolioAnalysisResult":
-        members = tuple(
-            PortfolioMemberResult(
+        def restore_member(item: dict[str, Any]) -> PortfolioMemberResult:
+            raw_curve = _curve_from_dict(item["raw_curve"])
+            allocated_curve = _curve_from_dict(item["allocated_curve"])
+            if raw_curve is None or allocated_curve is None:
+                raise ValueError("serialized portfolio member curves are required")
+            return PortfolioMemberResult(
                 member_key=item["member_key"],
                 strategy_name=item["strategy_name"],
                 description=item["description"],
@@ -446,13 +566,23 @@ class PortfolioAnalysisResult:
                 allocated_capital=item["allocated_capital"],
                 allocation_scale=item["allocation_scale"],
                 analysis=AnalysisResult.from_dict(item["analysis"]),
-                raw_curve=_curve_from_dict(item["raw_curve"]),
-                allocated_curve=_curve_from_dict(item["allocated_curve"]),
+                raw_curve=raw_curve,
+                allocated_curve=allocated_curve,
+                raw_drawdown_analysis=(
+                    DrawdownAnalysis.from_dict(item["raw_drawdown_analysis"])
+                    if isinstance(item.get("raw_drawdown_analysis"), dict)
+                    else analyze_drawdowns(raw_curve)
+                ),
+                allocated_drawdown_analysis=(
+                    DrawdownAnalysis.from_dict(item["allocated_drawdown_analysis"])
+                    if isinstance(item.get("allocated_drawdown_analysis"), dict)
+                    else analyze_drawdowns(allocated_curve)
+                ),
                 active_start=_datetime(item.get("active_start")),
                 active_end=_datetime(item.get("active_end")),
             )
-            for item in payload["members"]
-        )
+
+        members = tuple(restore_member(item) for item in payload["members"])
         config_data = dict(payload["config"])
         analysis_data = dict(config_data.pop("analysis_config", {}))
         sharpe_data = dict(analysis_data.pop("sharpe", {}))
@@ -469,19 +599,34 @@ class PortfolioAnalysisResult:
             ),
         )
         if payload.get("correlations"):
-            correlations = CorrelationResults.from_dict(payload["correlations"])
+            correlations = CorrelationResults.from_dict(
+                payload["correlations"],
+                minimum_observations=config.minimum_correlation_observations,
+                warning_observations=config.correlation_warning_observations,
+            )
         else:
+            correlation_members = [
+                (member.strategy_name, member.analysis.report.ordered_trades(), member.allocation_scale)
+                for member in members
+            ]
             daily_profit = build_daily_profit_correlation(
-                [
-                    (member.strategy_name, member.analysis.report.ordered_trades(), member.allocation_scale)
-                    for member in members
-                ],
+                correlation_members,
                 scope="full_sample",
                 timezone=payload.get("timezone"),
                 minimum_observations=config.minimum_correlation_observations,
                 warning_observations=config.correlation_warning_observations,
             )
-            correlations = CorrelationResults(daily_profit=daily_profit)
+            weekly_profit = build_weekly_profit_correlation(
+                correlation_members,
+                scope="full_sample",
+                timezone=payload.get("timezone"),
+                minimum_observations=config.minimum_correlation_observations,
+                warning_observations=config.correlation_warning_observations,
+            )
+            correlations = CorrelationResults(
+                daily_profit=daily_profit,
+                weekly_profit=weekly_profit,
+            )
         trade_profit_data = payload.get("trade_profit")
         trade_profit = (
             TradeProfitAnalysis.from_dict(trade_profit_data)
@@ -505,6 +650,13 @@ class PortfolioAnalysisResult:
                 member.strategy_name: member.analysis.trade_profit
                 for member in members
             }
+        portfolio_equity = _curve_from_dict(payload["equity"])
+        drawdown_data = payload.get("drawdown_analysis")
+        portfolio_drawdown = (
+            DrawdownAnalysis.from_dict(drawdown_data)
+            if isinstance(drawdown_data, dict)
+            else analyze_drawdowns(portfolio_equity)
+        )
         return cls(
             members=members,
             portfolio_initial_capital=payload["portfolio_initial_capital"],
@@ -516,11 +668,12 @@ class PortfolioAnalysisResult:
             metrics=Metrics(**payload["metrics"]),
             reported_metrics=payload.get("reported_metrics", {}),
             balance=_curve_from_dict(payload["balance"]),
-            equity=_curve_from_dict(payload["equity"]),
+            equity=portfolio_equity,
             source_balance=_curve_from_dict(payload.get("source_balance")),
             source_equity=_curve_from_dict(payload.get("source_equity")),
             monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
+            drawdown_analysis=portfolio_drawdown,
             monthly_performance=_monthly_table_from_payload(payload, tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))),
             trade_profit=trade_profit,
             raw_trade_profit=raw_trade_profit,
@@ -534,7 +687,11 @@ class PortfolioAnalysisResult:
             covariance_matrix=_matrix_from_dict(payload["covariance_matrix"]),
             correlations=correlations,
             periods={
-                name: PortfolioPeriodResult.from_dict(item)
+                name: PortfolioPeriodResult.from_dict(
+                    item,
+                    minimum_observations=config.minimum_correlation_observations,
+                    warning_observations=config.correlation_warning_observations,
+                )
                 for name, item in payload.get("periods", {}).items()
             },
             validation=ValidationResult(**payload["validation"]),
@@ -850,12 +1007,16 @@ def _build_portfolio_periods(
     timezone: str | None,
     portfolio_capital: float,
     diagnostics: list[Diagnostic],
-) -> tuple[dict[str, PortfolioPeriodResult], dict[str, DailyProfitCorrelationResult]]:
+) -> tuple[
+    dict[str, PortfolioPeriodResult],
+    dict[str, DailyProfitCorrelationResult],
+    dict[str, DailyProfitCorrelationResult],
+]:
     """Combine compatible member periods using their effective intersection."""
 
     member_period_maps = [member.analysis.periods for member in member_results]
     if not any(member_period_maps):
-        return {}, {}
+        return {}, {}, {}
     all_names = set().union(*(set(item) for item in member_period_maps))
     common_names = set.intersection(*(set(item) for item in member_period_maps)) if member_period_maps else set()
     for name in sorted(all_names - common_names):
@@ -867,6 +1028,7 @@ def _build_portfolio_periods(
 
     period_results: dict[str, PortfolioPeriodResult] = {}
     correlations: dict[str, DailyProfitCorrelationResult] = {}
+    weekly_correlations: dict[str, DailyProfitCorrelationResult] = {}
     for name in sorted(common_names):
         windows = [member.analysis.periods[name].window for member in member_results]
         start = max(window.start for window in windows)
@@ -932,7 +1094,13 @@ def _build_portfolio_periods(
             minimum_observations=config.minimum_correlation_observations,
             warning_observations=config.correlation_warning_observations,
         )
+        weekly = build_weekly_profit_correlation_from_daily(
+            daily,
+            minimum_observations=config.minimum_correlation_observations,
+            warning_observations=config.correlation_warning_observations,
+        )
         period_warnings.extend(daily.warnings)
+        period_warnings.extend(weekly.warnings)
         period_analysis = replace(
             period_analysis,
             warnings=tuple(list(period_analysis.warnings) + period_warnings),
@@ -947,11 +1115,13 @@ def _build_portfolio_periods(
             window=effective_window,
             analysis=period_analysis,
             daily_profit_correlation=daily,
+            weekly_profit_correlation=weekly,
             warnings=tuple(period_warnings),
         )
         correlations[name] = daily
+        weekly_correlations[name] = weekly
         diagnostics.extend(period_warnings)
-    return period_results, correlations
+    return period_results, correlations, weekly_correlations
 
 
 def _strict_or_warn(config: PortfolioConfig, diagnostics: list[Diagnostic]) -> None:
@@ -1015,6 +1185,8 @@ def combine_analyses(
                 selected = reconstructed
         raw_selected = selected
         allocated_selected = _scale_curve(selected, allocation)
+        raw_drawdown_analysis = analyze_drawdowns(raw_selected)
+        allocated_drawdown_analysis = analyze_drawdowns(allocated_selected)
         raw_reconstructed = reconstructed
         active_start, active_end = _active_bounds(raw_selected)
         if first_start is None:
@@ -1059,10 +1231,14 @@ def combine_analyses(
             analysis=prepared.analysis,
             raw_curve=raw_selected,
             allocated_curve=allocated_selected,
+            raw_drawdown_analysis=raw_drawdown_analysis,
+            allocated_drawdown_analysis=allocated_drawdown_analysis,
             active_start=active_start,
             active_end=active_end,
         ))
         diagnostics.extend(prepared.analysis.warnings)
+        diagnostics.extend(raw_drawdown_analysis.warnings)
+        diagnostics.extend(allocated_drawdown_analysis.warnings)
 
     reconstructed_allocated = _aggregate_curves(
         reconstructed_curves,
@@ -1082,6 +1258,7 @@ def combine_analyses(
         source="portfolio_allocated_member_curves",
         basis="equity" if all(curve.basis == "equity" for curve in selected_allocated_curves) else "balance",
     )
+    portfolio_drawdown_analysis = analyze_drawdowns(allocated_portfolio_curve)
 
     source_balance = None
     if len(source_balance_curves) == len(members):
@@ -1120,6 +1297,7 @@ def combine_analyses(
         for member in member_results
     }
     metric_diagnostics = list(diagnostics)
+    metric_diagnostics.extend(portfolio_drawdown_analysis.warnings)
     metric_diagnostics.extend(trade_profit.warnings)
     metrics = compute_metrics(
         portfolio_report,
@@ -1259,8 +1437,14 @@ def combine_analyses(
         minimum_observations=config.minimum_correlation_observations,
         warning_observations=config.correlation_warning_observations,
     )
+    weekly_profit = build_weekly_profit_correlation_from_daily(
+        daily_profit,
+        minimum_observations=config.minimum_correlation_observations,
+        warning_observations=config.correlation_warning_observations,
+    )
     metric_diagnostics.extend(daily_profit.warnings)
-    portfolio_periods, period_correlations = _build_portfolio_periods(
+    metric_diagnostics.extend(weekly_profit.warnings)
+    portfolio_periods, period_correlations, weekly_period_correlations = _build_portfolio_periods(
         member_results,
         config,
         currency,
@@ -1268,7 +1452,12 @@ def combine_analyses(
         portfolio_capital,
         metric_diagnostics,
     )
-    correlations = CorrelationResults(daily_profit=daily_profit, by_period=period_correlations)
+    correlations = CorrelationResults(
+        daily_profit=daily_profit,
+        weekly_profit=weekly_profit,
+        by_period=period_correlations,
+        weekly_by_period=weekly_period_correlations,
+    )
     validation_status = "warn" if metric_diagnostics else "match"
     validation = ValidationResult(
         status=validation_status,
@@ -1323,6 +1512,7 @@ def combine_analyses(
         source_equity=source_equity,
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
+        drawdown_analysis=portfolio_drawdown_analysis,
         monthly_performance=monthly_performance,
         trade_profit=trade_profit,
         raw_trade_profit=raw_trade_profit,

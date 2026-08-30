@@ -140,3 +140,18 @@
 | 2024-02 | 89.82 | 0.09% |
 | 2024-03 | 63.46 | 0.06% |
 | 2024-04 | -86.98 | -0.09% |
+
+## Drawdown depth × duration
+
+Curve: `reconstructed_closed_positions` / `balance`; completed episodes: 7; current: underwater.
+
+| Episode | Status | Depth | Duration | Depth percentile | Duration percentile |
+|---:|---|---:|---:|---:|---:|
+| 8 | open | -0.09% | 21.76 d | 50.00% | 7.14% |
+| 7 | completed | -0.09% | 38.69 d | 57.14% | 28.57% |
+| 6 | completed | -0.03% | 38.73 d | 42.86% | 42.86% |
+| 5 | completed | -0.03% | 42.73 d | 28.57% | 57.14% |
+| 4 | completed | -0.35% | 458.77 d | 100.00% | 100.00% |
+| 3 | completed | -0.19% | 138.03 d | 71.43% | 71.43% |
+| 2 | completed | -0.02% | 38.19 d | 14.29% | 14.29% |
+| 1 | completed | -0.27% | 224.23 d | 85.71% | 85.71% |

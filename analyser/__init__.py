@@ -42,7 +42,14 @@ from .charts import (
     save_monthly_performance_table,
 )
 from .comparison import ReportComparison, TradeMismatch, compare_reports
-from .correlation import CorrelationResults, DailyProfitCorrelationResult, DailyProfitPoint
+from .correlation import (
+    CorrelationResults,
+    DailyProfitCorrelationResult,
+    DailyProfitPoint,
+    build_daily_profit_correlation,
+    build_weekly_profit_correlation,
+    build_weekly_profit_correlation_from_daily,
+)
 from .config import AnalysisConfig, SharpeConfig
 from .periods import (
     PeriodSuggestion,
@@ -52,6 +59,13 @@ from .periods import (
     suggest_sample_periods,
 )
 from .equity import CurveSeries, EquityCurve, build_equity
+from .drawdown import (
+    DRAWDOWN_PERCENTILES,
+    DrawdownAnalysis,
+    DrawdownDistribution,
+    DrawdownEpisode,
+    analyze_drawdowns,
+)
 from .filters import (
     AllOf,
     AnyOf,
@@ -158,9 +172,17 @@ __all__ = [
     "TradeSelection",
     "TradeSelectionRecord",
     "CurveSeries",
+    "DRAWDOWN_PERCENTILES",
+    "DrawdownAnalysis",
+    "DrawdownDistribution",
+    "DrawdownEpisode",
+    "analyze_drawdowns",
     "CorrelationResults",
     "DailyProfitCorrelationResult",
     "DailyProfitPoint",
+    "build_daily_profit_correlation",
+    "build_weekly_profit_correlation",
+    "build_weekly_profit_correlation_from_daily",
     "EquityCurve",
     "InputSource",
     "Metrics",

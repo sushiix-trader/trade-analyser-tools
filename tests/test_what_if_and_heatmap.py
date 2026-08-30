@@ -389,8 +389,13 @@ class CorrelationHeatmapTests(unittest.TestCase):
 
         rendered = render_correlation_heatmap(portfolio.correlations.daily_profit)
         rendered_again = render_correlation_heatmap(portfolio.correlations.daily_profit)
+        weekly = render_correlation_heatmap(
+            portfolio.correlations.weekly_profit,
+            image_format="svg",
+        )
         self.assertTrue(rendered.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(rendered, rendered_again)
+        self.assertIn(b"Weekly profit correlation heat map", weekly)
 
 
 if __name__ == "__main__":

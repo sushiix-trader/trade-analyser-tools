@@ -29,3 +29,8 @@ results/sample_reports/*.html
 !results/sample_reports/example_strategy_a.html
 !results/sample_reports/example_strategy_b.html
 !results/sample_reports/example_strategy_c.html
+!results/synthetic-drawdown-report.html
+!results/sample_reports/synthetic_drawdown_36_episodes.html
+!results/synthetic-portfolio-report.html
+!results/sample_reports/synthetic_portfolio_strategy_a.html
+!results/sample_reports/synthetic_portfolio_strategy_b.html

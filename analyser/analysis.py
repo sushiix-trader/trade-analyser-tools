@@ -15,6 +15,7 @@ import numpy as np
 
 from .config import AnalysisConfig, SharpeConfig
 from .diagnostics import Diagnostic, ValidationResult
+from .drawdown import DrawdownAnalysis, analyze_drawdowns
 from .filters import (
     AllOf,
     FilterConfig,
@@ -225,6 +226,10 @@ class PeriodAnalysisResult:
         return self.analysis.monthly_drawdown
 
     @property
+    def drawdown_analysis(self) -> DrawdownAnalysis:
+        return self.analysis.drawdown_analysis
+
+    @property
     def monthly_performance(self) -> MonthlyPerformanceTable:
         return self.analysis.monthly_performance
 
@@ -282,6 +287,7 @@ class AnalysisResult:
     source_equity: CurveResult | None
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
+    drawdown_analysis: DrawdownAnalysis
     monthly_performance: MonthlyPerformanceTable
     trade_profit: TradeProfitAnalysis
     by_symbol: dict[str, dict[str, Any]]
@@ -425,6 +431,18 @@ class AnalysisResult:
                 initial_value=data["initial_value"],
             )
 
+        balance = restore_curve(payload["balance"])
+        equity = restore_curve(payload["equity"])
+        drawdown_data = payload.get("drawdown_analysis")
+        restored_drawdown = (
+            DrawdownAnalysis.from_dict(drawdown_data)
+            if isinstance(drawdown_data, dict)
+            else analyze_drawdowns(equity)
+        )
+        restored_warnings = [Diagnostic(**item) for item in payload.get("warnings", [])]
+        if not isinstance(drawdown_data, dict):
+            restored_warnings.extend(restored_drawdown.warnings)
+
         monthly = tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))
         table_data = payload.get("monthly_performance")
         if table_data is not None:
@@ -480,17 +498,18 @@ class AnalysisResult:
             report=report,
             metrics=Metrics(**payload["metrics"]),
             reported_metrics=payload.get("reported_metrics", {}),
-            balance=restore_curve(payload["balance"]),
-            equity=restore_curve(payload["equity"]),
+            balance=balance,
+            equity=equity,
             source_balance=restore_curve(payload.get("source_balance")),
             source_equity=restore_curve(payload.get("source_equity")),
             monthly=monthly,
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
+            drawdown_analysis=restored_drawdown,
             monthly_performance=monthly_performance,
             trade_profit=trade_profit,
             by_symbol=payload.get("by_symbol", {}),
             validation=validation,
-            warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
+            warnings=tuple(restored_warnings),
             provenance=payload.get("provenance", {}),
             filter_spec=filter_spec,
             filter_config=filter_config,
@@ -544,6 +563,44 @@ class AnalysisResult:
                     row.peak_to_trough_contained_amount, row.peak_to_trough_contained_percent,
                     row.drawdown_duration_days,
                 ])
+        elif section == "drawdown_summary":
+            writer.writerow(["axis", "unit", "count", "minimum", "p50", "p90", "p95", "p99", "maximum"])
+            distributions = (
+                ("depth_percent", self.drawdown_analysis.depth_distribution),
+                ("depth_money", self.drawdown_analysis.depth_money_distribution),
+                ("duration_days", self.drawdown_analysis.duration_distribution),
+                ("duration_periods", self.drawdown_analysis.duration_periods_distribution),
+            )
+            for axis, distribution in distributions:
+                writer.writerow([
+                    axis, distribution.unit, distribution.count, distribution.minimum,
+                    distribution.p50, distribution.p90, distribution.p95,
+                    distribution.p99, distribution.maximum,
+                ])
+        elif section == "drawdown_episodes":
+            writer.writerow([
+                "episode_id", "status", "peak_index", "trough_index", "end_index",
+                "recovery_index", "peak_time", "trough_time", "recovery_time", "end_time",
+                "peak_value", "trough_value", "recovery_value", "end_value",
+                "depth_money", "depth_percent", "duration_days", "duration_periods",
+                "depth_percentile", "depth_tail_rarity_percent", "depth_ordinal_rank",
+                "duration_percentile", "duration_tail_rarity_percent", "duration_ordinal_rank",
+            ])
+            for episode in self.drawdown_analysis.episodes:
+                writer.writerow([
+                    episode.episode_id, episode.status, episode.peak_index, episode.trough_index,
+                    episode.end_index, episode.recovery_index,
+                    episode.peak_time.isoformat() if episode.peak_time else None,
+                    episode.trough_time.isoformat() if episode.trough_time else None,
+                    episode.recovery_time.isoformat() if episode.recovery_time else None,
+                    episode.end_time.isoformat() if episode.end_time else None,
+                    episode.peak_value, episode.trough_value, episode.recovery_value,
+                    episode.end_value, episode.depth_money, episode.depth_percent,
+                    episode.duration_days, episode.duration_periods, episode.depth_percentile,
+                    episode.depth_tail_rarity_percent, episode.depth_ordinal_rank,
+                    episode.duration_percentile, episode.duration_tail_rarity_percent,
+                    episode.duration_ordinal_rank,
+                ])
         else:
             raise ValueError(f"Unknown CSV section: {section}")
         return output.getvalue()
@@ -556,6 +613,27 @@ class AnalysisResult:
         for row in self.monthly:
             value = "NA" if row.return_on_starting_equity is None else f"{row.return_on_starting_equity:.6%}"
             lines.append(f"| {row.period} | {row.pnl:.2f} | {value} |")
+        lines.extend([
+            "", "## Drawdown depth × duration", "",
+            f"Curve: `{self.drawdown_analysis.curve_source}` / `{self.drawdown_analysis.curve_basis}`; "
+            f"completed episodes: {self.drawdown_analysis.completed_episode_count}; "
+            f"current: {'underwater' if self.drawdown_analysis.current_episode else 'not underwater'}.",
+            "", "| Episode | Status | Depth | Duration | Depth percentile | Duration percentile |",
+            "|---:|---|---:|---:|---:|---:|",
+        ])
+        episodes = sorted(
+            self.drawdown_analysis.episodes,
+            key=lambda episode: (episode.status != "open", -episode.episode_id),
+        )
+        for episode in episodes:
+            depth = "NA" if episode.depth_percent is None else f"-{episode.depth_percent:.2f}%"
+            duration = "NA" if episode.duration_days is None else f"{episode.duration_days:.2f} d"
+            depth_rank = "NA" if episode.depth_percentile is None else f"{episode.depth_percentile:.2f}%"
+            duration_rank = "NA" if episode.duration_percentile is None else f"{episode.duration_percentile:.2f}%"
+            lines.append(
+                f"| {episode.episode_id} | {episode.status} | {depth} | {duration} | "
+                f"{depth_rank} | {duration_rank} |"
+            )
         return "\n".join(lines) + "\n"
 
 
@@ -771,6 +849,8 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         if source_equity is not None and config.primary_curve == "source_then_reconstructed"
         else reconstructed
     )
+    drawdown_analysis = analyze_drawdowns(primary)
+    diagnostics.extend(drawdown_analysis.warnings)
     metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
     monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
@@ -800,6 +880,7 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         source_equity=CurveResult.from_curve(source_equity),
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
+        drawdown_analysis=drawdown_analysis,
         monthly_performance=monthly_performance,
         trade_profit=trade_profit,
         by_symbol=_by_symbol(report) if config.include_breakdowns else {},
@@ -871,19 +952,25 @@ def _result_from_prepared_view(
             ),
         )
         if not plan.sample_periods and view.period_name is None:
+            filtered_source = "filtered_reconstructed_closed_positions"
             result = replace(
                 result,
                 balance=(
-                    replace(result.balance, source="filtered_reconstructed_closed_positions")
+                    replace(result.balance, source=filtered_source)
                     if result.balance is not None else None
                 ),
                 equity=(
-                    replace(result.equity, source="filtered_reconstructed_closed_positions")
+                    replace(result.equity, source=filtered_source)
                     if result.equity is not None else None
+                ),
+                drawdown_analysis=replace(
+                    result.drawdown_analysis,
+                    curve_source=filtered_source,
+                    curve_basis="balance",
                 ),
                 monthly_performance=replace(
                     result.monthly_performance,
-                    source="filtered_reconstructed_closed_positions",
+                    source=filtered_source,
                     basis="balance",
                 ),
             )

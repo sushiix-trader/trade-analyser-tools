@@ -143,11 +143,22 @@ class DailyProfitCorrelationTests(unittest.TestCase):
         ]
         result = combine_analyses(prepared, PortfolioConfig())
         daily = result.correlations.daily_profit
+        self.assertEqual(daily.frequency, "daily")
         self.assertEqual(daily.matrix.row_labels, ("A", "B"))
         self.assertEqual(daily.observations, 3)
         self.assertAlmostEqual(daily.matrix.values[0][1], 1.0)
         self.assertEqual(daily.series["A"][0].profit, 100.0)
         self.assertEqual(result.daily_profit_correlation, daily.matrix)
+
+        weekly = result.correlations.weekly_profit
+        self.assertIsNotNone(weekly)
+        assert weekly is not None
+        self.assertEqual(weekly.frequency, "weekly")
+        self.assertEqual(weekly.observations, 2)
+        self.assertEqual(weekly.included_dates[0].isoformat(), "2024-01-01")
+        self.assertEqual(weekly.series["A"][0].profit, 50.0)
+        self.assertAlmostEqual(weekly.matrix.values[0][1], 1.0)
+        self.assertEqual(result.weekly_profit_correlation, weekly)
 
     def test_period_correlations_are_exposed(self) -> None:
         p = periods()
@@ -175,7 +186,9 @@ class DailyProfitCorrelationTests(unittest.TestCase):
         )
         self.assertIn("in_sample", result.periods)
         self.assertIn("out_of_sample", result.correlations.by_period)
+        self.assertIn("out_of_sample", result.correlations.weekly_by_period)
         self.assertIsNotNone(result.periods["out_of_sample"].daily_profit_correlation)
+        self.assertIsNotNone(result.periods["out_of_sample"].weekly_profit_correlation)
 
 
 if __name__ == "__main__":

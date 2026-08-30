@@ -70,7 +70,9 @@ trade-analyser-gui
    loop, opens the generated HTML report in the default browser, and lists all
    output paths in the window. When Monte Carlo is enabled, the opened report
    includes a separate **Monte Carlo** tab with distribution summaries and a
-   retained-path chart.
+   retained-path chart. The same report also includes the deterministic
+   **Drawdown** tab with depth × duration episodes and historical percentile
+   distributions.
 
 The browser report is a self-contained HTML file. It can be opened and shared
 without running Python or starting a server.
@@ -119,9 +121,9 @@ tab. The report explains when no simulation was supplied and renders the results
 when the option is enabled.
 
 The interactive HTML report contains the platform's existing report views,
-including metrics, monthly performance, monthly drawdown, equity/drawdown,
-trade analysis, and portfolio correlation when a portfolio result is supplied
-through the analyser API.
+including metrics, monthly performance, monthly drawdown, equity/drawdown, the
+Drawdown depth × duration analysis, trade analysis, and portfolio correlation
+when a portfolio result is supplied through the analyser API.
 
 ## Framework-free workflow seam
 

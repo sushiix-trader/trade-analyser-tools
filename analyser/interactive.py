@@ -334,6 +334,7 @@ def _safe_analysis_payload(
         "monthly": _json_safe([to_primitive(row) for row in result.monthly]),
         "monthly_drawdown": _json_safe([to_primitive(row) for row in result.monthly_drawdown]),
         "monthly_drawdown_table": _monthly_drawdown_table_payload(result.monthly_drawdown),
+        "drawdown_analysis": _json_safe(to_primitive(result.drawdown_analysis)),
         "monthly_performance": _json_safe(result.monthly_performance.to_dict()),
         "equity": _curve_payload(result.equity),
         "balance": _curve_payload(result.balance),
@@ -460,6 +461,8 @@ def _safe_portfolio_payload(
         )
         member_analysis["allocated_equity"] = _curve_payload(member.allocated_curve)
         member_analysis["raw_equity"] = _curve_payload(member.raw_curve)
+        member_analysis["raw_drawdown_analysis"] = _json_safe(to_primitive(member.raw_drawdown_analysis))
+        member_analysis["allocated_drawdown_analysis"] = _json_safe(to_primitive(member.allocated_drawdown_analysis))
         members[member.member_key] = {
             "member_key": member.member_key,
             "strategy_name": member.strategy_name,
@@ -486,6 +489,7 @@ def _safe_portfolio_payload(
         "monthly": _json_safe([to_primitive(row) for row in result.monthly]),
         "monthly_drawdown": _json_safe([to_primitive(row) for row in result.monthly_drawdown]),
         "monthly_drawdown_table": _monthly_drawdown_table_payload(result.monthly_drawdown),
+        "drawdown_analysis": _json_safe(to_primitive(result.drawdown_analysis)),
         "monthly_performance": _json_safe(result.monthly_performance.to_dict()),
         "equity": _curve_payload(result.equity),
         "balance": _curve_payload(result.balance),
@@ -696,7 +700,7 @@ _HTML_TEMPLATE = r'''<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__REPORT_TITLE__</title>
 <meta name="description" content="__REPORT_DESCRIPTION__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none';">
 <style>
 :root {
   color-scheme: dark;
@@ -818,6 +822,35 @@ p { color: var(--muted); }
 .mc-legend .central::before { background: var(--positive); }
 .mc-legend .median::before { background: var(--accent-2); }
 .mc-legend .path-line::before { height: 1px; background: rgba(36,59,83,.42); }
+.dd-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .65rem; margin-bottom: 1rem; }
+.dd-stat { min-height: 84px; padding: .72rem; border-radius: 11px; background: rgba(93,182,255,.09); border: 1px solid rgba(93,182,255,.24); }
+.dd-stat.current { background: rgba(255,201,107,.10); border-color: rgba(255,201,107,.38); }
+.dd-stat .label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.dd-stat .value { margin-top: .35rem; font-size: 1.05rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.dd-subview { margin-bottom: 1rem; }
+.dd-subview:last-child { margin-bottom: 0; }
+.dd-chart-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+.dd-chart-grid > * { min-width: 0; }
+.dd-chart-wrap { width: 100%; overflow: hidden; }
+.dd-chart { width: 100%; min-width: 0; height: auto; display: block; }
+.dd-chart text { fill: #243b53; font-size: 11px; }
+.dd-chart .grid { stroke: rgba(36,59,83,.16); stroke-width: 1; }
+.dd-chart .axis { stroke: rgba(36,59,83,.42); stroke-width: 1; }
+.dd-chart .guide { stroke: rgba(220,38,38,.58); stroke-width: 1.1; stroke-dasharray: 5 4; }
+.dd-chart .point { fill: #5db6ff; stroke: #0b385f; stroke-width: 1.4; }
+.dd-chart .point.open { fill: #ffc96b; stroke: #8a5a00; stroke-width: 2; }
+.dd-chart .hist-bar { fill: rgba(93,182,255,.72); stroke: #0b385f; stroke-width: .45; }
+.dd-chart .percentile-line { stroke: #dc2626; stroke-width: 1.35; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.dd-chart .percentile-label { fill: #b91c1c; font-size: 10px; font-weight: 750; }
+.dd-chart .current-line { stroke: #d97706; stroke-width: 1.8; stroke-dasharray: 5 4; }
+.dd-chart .zero-line { stroke: rgba(36,59,83,.32); stroke-dasharray: 3 3; }
+.dd-table-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.dd-table { min-width: 1250px; }
+.dd-table th, .dd-table td { text-align: right; }
+.dd-table th:first-child, .dd-table td:first-child, .dd-table th:nth-child(2), .dd-table td:nth-child(2) { text-align: left; }
+.dd-table .open-row { background: rgba(255,201,107,.09); }
+.dd-caption { margin: .55rem 0 0; }
+.dd-basis-label { margin: 0 0 .7rem; color: var(--text); font-size: .9rem; font-weight: 750; }
 .data-table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
 .data-table th, .data-table td { padding: .48rem .55rem; border-bottom: 1px solid rgba(141,165,196,.13); text-align: right; white-space: nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align: left; }
@@ -847,7 +880,7 @@ p { color: var(--muted); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: .75rem; }
 .empty { color: var(--muted); padding: 1rem 0; }
 .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
-@media (max-width: 840px) { .two-col { grid-template-columns: 1fr; } .toolbar .meta { margin-left: 0; width: 100%; } .shell { padding-left: .75rem; padding-right: .75rem; } .toolbar { margin-left: -.75rem; margin-right: -.75rem; padding-left: .75rem; padding-right: .75rem; } }
+@media (max-width: 840px) { .two-col, .dd-chart-grid { grid-template-columns: 1fr; } .toolbar .meta { margin-left: 0; width: 100%; } .shell { padding-left: .75rem; padding-right: .75rem; } .toolbar { margin-left: -.75rem; margin-right: -.75rem; padding-left: .75rem; padding-right: .75rem; } }
 @media (max-width: 640px) {
   html, body { overflow-x: hidden; }
   .shell { padding-left: .65rem; padding-right: .65rem; }
@@ -914,7 +947,7 @@ p { color: var(--muted); }
     <span class="meta" id="toolbarMeta"></span>
   </div>
   <nav class="nav" role="tablist" aria-label="Report sections">
-    <a id="tab-overview" href="#overview" role="tab" data-tab="overview" aria-controls="overview" aria-selected="true" tabindex="0">Overview</a><a id="tab-equity" href="#equity" role="tab" data-tab="equity" aria-controls="equity" aria-selected="false" tabindex="-1">Equity</a><a id="tab-trade-analysis" href="#trade-analysis" role="tab" data-tab="trade-analysis" aria-controls="trade-analysis" aria-selected="false" tabindex="-1">Trade analysis</a>
+    <a id="tab-overview" href="#overview" role="tab" data-tab="overview" aria-controls="overview" aria-selected="true" tabindex="0">Overview</a><a id="tab-equity" href="#equity" role="tab" data-tab="equity" aria-controls="equity" aria-selected="false" tabindex="-1">Equity</a><a id="tab-drawdown" href="#drawdown" role="tab" data-tab="drawdown" aria-controls="drawdown" aria-selected="false" tabindex="-1">Drawdown</a><a id="tab-trade-analysis" href="#trade-analysis" role="tab" data-tab="trade-analysis" aria-controls="trade-analysis" aria-selected="false" tabindex="-1">Trade analysis</a>
     <a id="tab-monthly" href="#monthly" role="tab" data-tab="monthly" aria-controls="monthly" aria-selected="false" tabindex="-1">Monthly performance</a><a id="tab-correlation" href="#correlation" role="tab" data-tab="correlation" aria-controls="correlation" aria-selected="false" tabindex="-1">Correlation</a><a id="tab-trades" href="#trades" role="tab" data-tab="trades" aria-controls="trades" aria-selected="false" tabindex="-1">Trades</a><a id="tab-monte-carlo" href="#monte-carlo" role="tab" data-tab="monte-carlo" aria-controls="monte-carlo" aria-selected="false" tabindex="-1" class="monte-carlo-tab">Monte Carlo</a><a id="tab-audit" href="#audit" role="tab" data-tab="audit" aria-controls="audit" aria-selected="false" tabindex="-1">Warnings & provenance</a>
   </nav>
 
@@ -932,6 +965,11 @@ p { color: var(--muted); }
         <span class="controls" aria-label="Chart navigation"><button id="panLeft" type="button" title="Pan left">←</button><button id="zoomOut" type="button" title="Zoom out">−</button><button id="zoomIn" type="button" title="Zoom in">+</button><button id="panRight" type="button" title="Pan right">→</button><button id="resetChart" type="button">Reset view</button></span>
       </div></div>
       <div class="panel chart-panel"><div class="chart-wrap" id="equityChart"></div><div class="legend" id="equityLegend"></div><div class="chart-tooltip" id="chartTooltip"></div></div>
+    </section>
+
+    <section class="section tab-panel" id="drawdown" role="tabpanel" data-tab-panel="drawdown" aria-labelledby="tab-drawdown" hidden>
+      <div class="section-heading"><h2>Drawdown depth × duration</h2><div class="controls"><button id="downloadDrawdownSummary" type="button">Download summary CSV</button><button id="downloadDrawdownEpisodes" type="button">Download episodes CSV</button></div></div>
+      <div id="drawdownPanel"></div>
     </section>
 
     <section class="section tab-panel" id="trade-analysis" role="tabpanel" data-tab-panel="trade-analysis" aria-labelledby="tab-trade-analysis" hidden>
@@ -952,7 +990,8 @@ p { color: var(--muted); }
     </section>
 
     <section class="section tab-panel" id="correlation" role="tabpanel" data-tab-panel="correlation" aria-labelledby="tab-correlation" hidden>
-      <div class="section-heading"><h2>Daily profit correlation</h2><div class="controls" id="correlationControls">
+      <div class="section-heading"><h2>Profit correlation</h2><div class="controls" id="correlationControls">
+        <label class="control-label" for="correlationFrequency">Frequency</label><select id="correlationFrequency"><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
         <label class="control-label" for="correlationMode">Series</label><select id="correlationMode"><option value="raw">Raw</option><option value="allocated">Allocated</option></select>
       </div></div>
       <div class="panel" id="correlationPanel"></div>
@@ -984,7 +1023,7 @@ p { color: var(--muted); }
   "use strict";
   const report = JSON.parse(document.getElementById("report-data").textContent);
   const config = JSON.parse(document.getElementById("report-config").textContent);
-  const TAB_IDS = ["overview", "equity", "trade-analysis", "monthly", "correlation", "trades", "monte-carlo", "audit"];
+  const TAB_IDS = ["overview", "equity", "drawdown", "trade-analysis", "monthly", "correlation", "trades", "monte-carlo", "audit"];
   const state = {
     activeTab: "overview",
     direction: report.default_direction || "all",
@@ -996,6 +1035,7 @@ p { color: var(--muted); }
     showPeriods: true,
     grouping: "open_hour",
     measure: "net_profit",
+    correlationFrequency: "daily",
     correlationMode: "raw",
     search: "",
     sort: "close_desc",
@@ -1052,20 +1092,45 @@ p { color: var(--muted); }
     const symbol = currencyUnit(currency);
     const sign = number < 0 ? "-" : "";
     const absolute = Math.abs(number);
-    if (absolute >= 1000) return `${sign}${symbol}${Math.round(absolute / 1000)}k`;
-    return `${sign}${symbol}${Math.round(absolute)}`;
+    return `${sign}${symbol}${Math.round(absolute).toLocaleString()}`;
   };
   const axisLabel = (value, mode, currency) => mode === "money" ? axisMoneyLabel(value, currency) : `${Number(value).toFixed(2)}%`;
-  function axisTicks(min, max, mode) {
-    if (mode !== "money") return [0, .25, .5, .75, 1].map((fraction) => min + fraction * (max - min));
-    const lower = Math.floor(min / 1000) * 1000;
-    const upper = Math.ceil(max / 1000) * 1000;
-    const span = Math.max(1000, upper - lower);
-    const step = Math.max(1000, Math.ceil(span / 4 / 1000) * 1000);
+  function niceStep(range, target = 5) {
+    const safeRange = Math.abs(Number(range));
+    if (!Number.isFinite(safeRange) || safeRange <= 0) return 1;
+    const raw = safeRange / Math.max(2, target);
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const fraction = raw / power;
+    const multiplier = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+    return multiplier * power;
+  }
+  function niceTicks(min, max, target = 5, integer = false) {
+    let lower = Number(min), upper = Number(max);
+    if (!Number.isFinite(lower) || !Number.isFinite(upper)) return [];
+    if (lower > upper) [lower, upper] = [upper, lower];
+    if (lower === upper) {
+      const padding = Math.max(Math.abs(lower) * .05, integer ? 1 : .01);
+      lower -= padding; upper += padding;
+    }
+    let step = niceStep(upper - lower, target);
+    if (integer) step = Math.max(1, Math.ceil(step));
+    lower = Math.floor(lower / step) * step;
+    upper = Math.ceil(upper / step) * step;
     const ticks = [];
-    for (let value = lower; value <= upper; value += step) ticks.push(value);
-    if (ticks[ticks.length - 1] !== upper) ticks.push(upper);
-    return ticks;
+    for (let index = 0, value = lower; value <= upper + Math.abs(step) * 1e-9 && index < 100; index += 1, value = lower + index * step) {
+      ticks.push(Math.abs(value) < Math.abs(step) * 1e-9 ? 0 : Number(value.toFixed(12)));
+    }
+    return ticks.length > 1 ? ticks : [lower, upper];
+  }
+  function axisTicks(min, max, mode) {
+    if (mode === "money") {
+      const lower = Math.floor(min / 1000) * 1000;
+      const upper = Math.ceil(max / 1000) * 1000;
+      const span = Math.max(1000, upper - lower);
+      const step = Math.max(1000, niceStep(span, 4));
+      return niceTicks(lower, upper, Math.max(2, Math.ceil(span / step)), true);
+    }
+    return niceTicks(min, max, 5);
   }
   const currentVariant = () => report.variants[state.direction] || report.variants.all;
   const currentMember = () => {
@@ -1089,7 +1154,7 @@ p { color: var(--muted); }
     $("reportTitleInput").value = title;
   }
   function updateHash() {
-    const params = new URLSearchParams({tab: state.activeTab, direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
+    const params = new URLSearchParams({tab: state.activeTab, direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, correlation: state.correlationFrequency, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
     history.replaceState(null, "", `#${params.toString()}`);
   }
   function readHash() {
@@ -1100,6 +1165,7 @@ p { color: var(--muted); }
     if (["all", "long", "short"].includes(params.get("direction"))) state.direction = params.get("direction");
     if (report.kind === "portfolio" && (params.get("data") === "portfolio" || report.variants.all.members?.[params.get("data")])) state.data = params.get("data");
     if (["percent", "money"].includes(params.get("equity"))) state.valueMode = params.get("equity");
+    if (["daily", "weekly"].includes(params.get("correlation"))) state.correlationFrequency = params.get("correlation");
     state.drawdownMode = state.valueMode;
     state.showMembers = params.has("members") ? params.get("members") === "1" : report.kind === "portfolio";
     if (params.get("title")) applyTitle(params.get("title"));
@@ -1213,7 +1279,7 @@ p { color: var(--muted); }
     const downloadButton = $("downloadMonteCarlo");
     if (!simulation) {
       downloadButton.disabled = true;
-      panel.innerHTML = "<div class='notice muted'>Monte Carlo was not run for this report. Enable it in the desktop GUI or pass a MonteCarloResult to the interactive report API.</div>";
+      panel.innerHTML = "<div class='notice muted'>Monte Carlo was not run for this report. This HTML is a static report and cannot start the simulation itself. Ask the agent to run a Monte Carlo analysis for this report and regenerate the HTML report; the robustness results will then appear here.</div>";
       return;
     }
     downloadButton.disabled = false;
@@ -1232,6 +1298,256 @@ p { color: var(--muted); }
     }).join("");
     panel.innerHTML = `<div class='mc-summary-grid'>${cards}</div><div class='matrix-wrap mc-table'><table class='data-table'><thead><tr><th>Distribution</th><th>P5</th><th>Median</th><th>P95</th><th>Mean</th><th>Worst</th></tr></thead><tbody>${rows}</tbody></table></div><div class='panel chart-panel' style='margin-top:1rem'><div id='monteCarloChart'></div></div><p class='small'>Monte Carlo operates on completed-position net profits from the all-trades report view. Direction and member filters do not rerun this simulation. Permutation preserves the observed outcomes and changes their order; bootstrap samples with replacement. It does not simulate future tick paths or live execution.</p>`;
     renderMonteCarloPathChart(simulation);
+  }
+  function drawdownViews() {
+    const view = currentView();
+    const member = currentMember();
+    if (member) {
+      const raw = member.analysis?.raw_drawdown_analysis || member.analysis?.drawdown_analysis;
+      const allocated = member.analysis?.allocated_drawdown_analysis;
+      return [
+        raw ? {label: `${displayName()} · Raw selected curve`, data: raw} : null,
+        allocated ? {label: `${displayName()} · Allocated member curve`, data: allocated} : null,
+      ].filter(Boolean);
+    }
+    return view.drawdown_analysis ? [{
+      label: view.kind === "portfolio" ? "Portfolio · Allocated capital" : `${displayName()} · Primary curve`,
+      data: view.drawdown_analysis,
+    }] : [];
+  }
+  function ddDepth(value, kind = "percent") {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "N/A";
+    const number = Math.abs(Number(value));
+    return kind === "percent" ? `-${number.toFixed(2)}%` : fmt(-number, "money");
+  }
+  function ddDuration(value, kind = "days") {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "N/A";
+    return kind === "days" ? `${Number(value).toFixed(2)} d` : `${Number(value).toFixed(0)}`;
+  }
+  function ddRank(value) { return value === null || value === undefined ? "N/A" : fmt(value, "pct"); }
+  function ddEpisodeSort(left, right) {
+    if (left.status === "open" && right.status !== "open") return -1;
+    if (right.status === "open" && left.status !== "open") return 1;
+    return Number(right.episode_id || 0) - Number(left.episode_id || 0);
+  }
+  function ddDistributionRows(data) {
+    const rows = [
+      ["Depth (%)", data.depth_distribution, "depth_percent"],
+      ["Depth (money)", data.depth_money_distribution, "depth_money"],
+      ["Duration (elapsed days)", data.duration_distribution, "duration_days"],
+      ["Duration (observed periods)", data.duration_periods_distribution, "duration_periods"],
+    ];
+    return rows.map(([label, distribution, kind]) => {
+      const render = (value) => kind === "depth_percent" ? ddDepth(value) : kind === "depth_money" ? ddDepth(value, "money") : ddDuration(value, kind === "duration_days" ? "days" : "periods");
+      return `<tr><th>${esc(label)}</th><td>${esc(render(distribution?.p50))}</td><td>${esc(render(distribution?.p90))}</td><td>${esc(render(distribution?.p95))}</td><td>${esc(render(distribution?.p99))}</td><td>${esc(render(distribution?.maximum))}</td></tr>`;
+    }).join("");
+  }
+  function ddPrecisionForStep(step) {
+    const size = Math.abs(Number(step));
+    if (!Number.isFinite(size) || size <= 0) return 0;
+    return Math.max(0, Math.min(8, Math.ceil(-Math.log10(size) - 1e-9)));
+  }
+  function ddAxisLabel(value, axis, decimals = null) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "N/A";
+    if (axis === "days" || axis === "periods" || axis === "count") return Math.round(number).toLocaleString();
+    const cleaned = Math.abs(number) < .0000005 ? 0 : number;
+    const digits = decimals === null ? (Math.abs(cleaned) >= 1 ? 1 : Math.abs(cleaned) >= .1 ? 2 : 3) : decimals;
+    return cleaned.toFixed(digits);
+  }
+  function ddChartWidth() {
+    return Math.max(280, Math.min(760, Math.floor(window.innerWidth - 86)));
+  }
+  function ddQuantile(values, percentile) {
+    if (!values.length) return null;
+    const position = (values.length - 1) * percentile / 100;
+    const lower = Math.floor(position), upper = Math.ceil(position);
+    if (lower === upper) return values[lower];
+    return values[lower] + (values[upper] - values[lower]) * (position - lower);
+  }
+  function ddScatterSvg(data) {
+    const episodes = (data.episodes || []).filter((episode) => Number.isFinite(Number(episode.duration_days)) && Number.isFinite(Number(episode.depth_percent)));
+    if (!episodes.length) return "<div class='empty'>No episodes have both elapsed duration and percentage depth for the scatter plot.</div>";
+    const width = ddChartWidth(), height = 360, left = width < 500 ? 52 : 76, right = width < 500 ? 14 : 28, top = 30, bottom = 58;
+    const historical = episodes.filter((episode) => episode.status === "completed");
+    const axisEpisodes = historical.length ? historical : episodes;
+    const maxDuration = Math.max(1, ...axisEpisodes.map((episode) => Number(episode.duration_days)));
+    const maxDepth = Math.max(Number.EPSILON, ...axisEpisodes.map((episode) => Number(episode.depth_percent)));
+    const xTicks = niceTicks(0, maxDuration, 5, true);
+    const yTicks = niceTicks(-maxDepth * 1.08, 0, 5);
+    const depthDigits = ddPrecisionForStep(yTicks.length > 1 ? yTicks[1] - yTicks[0] : 0);
+    const xMax = xTicks[xTicks.length - 1] || maxDuration;
+    const yMin = yTicks[0] ?? -maxDepth;
+    const xRight = width - right;
+    const yBottom = height - bottom;
+    const xFor = (value) => left + Number(value) / xMax * (xRight - left);
+    const yFor = (value) => top + (0 - Number(value)) / (0 - yMin) * (height - bottom - top);
+    const svg = [`<svg class='dd-chart' viewBox='0 0 ${width} ${height}' role='img' aria-label='Drawdown depth versus elapsed duration scatter plot'><rect x='0' y='0' width='${width}' height='${height}' fill='#ffffff'/>`];
+    xTicks.forEach((value) => {
+      const x = xFor(value);
+      svg.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${yBottom}'/><text x='${x.toFixed(2)}' y='${yBottom + 18}' text-anchor='middle'>${esc(ddAxisLabel(value, "days"))}</text>`);
+    });
+    yTicks.forEach((value) => {
+      const y = yFor(value);
+      svg.push(`<line class='grid' x1='${left}' x2='${xRight}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/><text x='${left - 10}' y='${(y + 4).toFixed(2)}' text-anchor='end'>${esc(ddAxisLabel(value, "percent", depthDigits))}%</text>`);
+    });
+    svg.push(`<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${yBottom}'/><line class='axis' x1='${left}' x2='${xRight}' y1='${yBottom}' y2='${yBottom}'/>`);
+    const p95Depth = Number(data.depth_distribution?.p95);
+    const p95Duration = Number(data.duration_distribution?.p95);
+    if (Number.isFinite(p95Depth)) {
+      const y = yFor(-p95Depth);
+      if (y >= top && y <= yBottom) svg.push(`<line class='guide' x1='${left}' x2='${xRight}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'><title>P95 historical depth: ${esc(ddDepth(p95Depth))}</title></line>`);
+    }
+    if (Number.isFinite(p95Duration)) {
+      const x = xFor(p95Duration);
+      if (x >= left && x <= xRight) svg.push(`<line class='guide' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${yBottom}'><title>P95 historical duration: ${esc(ddDuration(p95Duration))}</title></line>`);
+    }
+    episodes.forEach((episode) => {
+      const rawX = Number(episode.duration_days);
+      const rawY = -Number(episode.depth_percent);
+      const plottedX = Math.min(xMax, Math.max(0, rawX));
+      const plottedY = Math.max(yMin, Math.min(0, rawY));
+      const clipped = plottedX !== rawX || plottedY !== rawY;
+      const x = xFor(plottedX), y = yFor(plottedY);
+      const current = episode.status === "open";
+      const clipNote = clipped ? " · outside historical scale, clipped to chart edge" : "";
+      svg.push(`<circle class='point${current ? " open" : ""}' cx='${x.toFixed(2)}' cy='${y.toFixed(2)}' r='${current ? 6 : 5}'><title>Episode ${esc(episode.episode_id)} · ${esc(episode.status)} · depth ${esc(ddDepth(episode.depth_percent))} · duration ${esc(ddDuration(episode.duration_days))}${esc(clipNote)}</title></circle>`);
+    });
+    svg.push(`<text x='${left + (xRight - left) / 2}' y='${height - 12}' text-anchor='middle'>Elapsed duration (days)</text><text x='${left / 2}' y='${top + (yBottom - top) / 2}' text-anchor='middle' transform='rotate(-90 ${left / 2} ${top + (yBottom - top) / 2})'>Depth (%)</text></svg>`);
+    return svg.join("");
+  }
+  function ddHistogramSvg(data, axis, label, values, currentValue) {
+    const observations = values.map((raw, index) => {
+      const value = raw && typeof raw === "object" ? raw.value : raw;
+      const episodeId = raw && typeof raw === "object" ? raw.episode_id : index + 1;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? {episodeId: String(episodeId), value: numeric} : null;
+    }).filter(Boolean);
+    if (!observations.length) return `<div class='empty'>No completed historical ${esc(label.toLowerCase())} values are available for a distribution chart.</div>`;
+    const integerAxis = axis !== "depth";
+    const ordered = observations.map((observation) => ({
+      episodeId: observation.episodeId,
+      value: observation.value,
+      displayed: axis === "depth" ? -Math.abs(observation.value) : observation.value,
+    })).sort((left, right) => left.value - right.value || left.episodeId.localeCompare(right.episodeId, undefined, {numeric: true}));
+    const displayed = ordered.map((observation) => observation.displayed);
+    const current = currentValue === null || currentValue === undefined || !Number.isFinite(Number(currentValue)) ? null : axis === "depth" ? -Math.abs(Number(currentValue)) : Number(currentValue);
+    const historicalMin = Math.min(...displayed), historicalMax = Math.max(...displayed);
+    const historicalRange = Math.max(historicalMax - historicalMin, Math.abs(historicalMax) * .05, integerAxis ? 1 : .000001);
+    const currentOutside = current !== null && (current < historicalMin - historicalRange * .5 || current > historicalMax + historicalRange * .5);
+    const plottedValues = current === null || currentOutside ? displayed : displayed.concat([current]);
+    let lower = Math.min(...plottedValues), upper = Math.max(...plottedValues);
+    lower = Math.min(lower, 0);
+    upper = axis === "depth" ? Math.max(upper, 0) : upper;
+    if (lower === upper) {
+      const padding = Math.max(Math.abs(lower) * .05, integerAxis ? 1 : .01);
+      lower -= padding; upper += padding;
+    }
+    const axisTicks = niceTicks(lower, upper, 5, integerAxis);
+    lower = axisTicks[0] ?? lower;
+    upper = axisTicks[axisTicks.length - 1] ?? upper;
+    const axisDigits = ddPrecisionForStep(axisTicks.length > 1 ? axisTicks[1] - axisTicks[0] : 0);
+    const formatValue = axis === "depth"
+      ? (value) => `${ddAxisLabel(value, "percent", axisDigits)}%`
+      : (value) => ddAxisLabel(value, "days", 0);
+    const width = ddChartWidth(), height = 320, left = width < 500 ? 52 : 76, right = width < 500 ? 14 : 28, top = 28, bottom = 58;
+    const plotWidth = width - right - left, plotHeight = height - bottom - top;
+    const yFor = (value) => height - bottom - (value - lower) / (upper - lower || 1) * plotHeight;
+    const xForRank = (rank) => left + (rank - .5) / ordered.length * plotWidth;
+    const rankTicks = niceTicks(1, ordered.length, 5, true).filter((value) => value >= 1 && value <= ordered.length);
+    if (!rankTicks.includes(1)) rankTicks.unshift(1);
+    if (!rankTicks.includes(ordered.length)) rankTicks.push(ordered.length);
+    const percentileMarkers = [5, 50, 95].map((percentile) => {
+      const rawValue = ddQuantile(ordered.map((observation) => observation.value), percentile);
+      return {
+        label: percentile === 50 ? "Median" : `P${percentile}`,
+        rank: 1 + (ordered.length - 1) * percentile / 100,
+        value: axis === "depth" ? -Math.abs(rawValue) : rawValue,
+      };
+    });
+    const baselineY = yFor(0);
+    const svg = [`<svg class='dd-chart' viewBox='0 0 ${width} ${height}' role='img' aria-label='${esc(label)} distribution by sorted completed episode (${ordered.length} completed episodes)'><rect x='0' y='0' width='${width}' height='${height}' fill='#ffffff'/>`];
+    axisTicks.forEach((value) => {
+      const y = yFor(value);
+      svg.push(`<line class='grid' x1='${left}' x2='${width - right}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/><text x='${left - 10}' y='${(y + 4).toFixed(2)}' text-anchor='end'>${esc(formatValue(value))}</text>`);
+    });
+    rankTicks.forEach((value) => {
+      const x = xForRank(value);
+      svg.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${height - bottom}'/><text x='${x.toFixed(2)}' y='${height - bottom + 18}' text-anchor='middle'>${esc(ddAxisLabel(value, "count"))}</text>`);
+    });
+    svg.push(`<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${height - bottom}'/><line class='axis' x1='${left}' x2='${width - right}' y1='${height - bottom}' y2='${height - bottom}'/>`);
+    if (baselineY > top && baselineY < height - bottom) svg.push(`<line class='zero-line' x1='${left}' x2='${width - right}' y1='${baselineY.toFixed(2)}' y2='${baselineY.toFixed(2)}'/>`);
+    const slotWidth = plotWidth / ordered.length;
+    const barWidth = Math.max(1, slotWidth * .88);
+    ordered.forEach((observation, index) => {
+      const rank = index + 1;
+      const x = xForRank(rank);
+      const valueY = yFor(observation.displayed);
+      const y = Math.min(baselineY, valueY);
+      const barHeight = Math.max(1, Math.abs(baselineY - valueY));
+      const tooltip = `Episode ${observation.episodeId} · sorted rank ${rank} · ${label}: ${formatValue(observation.displayed)}`;
+      svg.push(`<rect class='hist-bar' x='${(x - barWidth / 2).toFixed(2)}' y='${y.toFixed(2)}' width='${barWidth.toFixed(2)}' height='${barHeight.toFixed(2)}' rx='2'><title>${esc(tooltip)}</title></rect>`);
+    });
+    percentileMarkers.forEach((marker, index) => {
+      const x = xForRank(marker.rank);
+      const labelY = top + 13 + (index === 1 ? 13 : 0);
+      svg.push(`<line class='percentile-line' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${height - bottom}'><title>${esc(`${marker.label}: ${formatValue(marker.value)}`)}</title></line><text class='percentile-label' x='${x.toFixed(2)}' y='${labelY}' text-anchor='middle'>${esc(marker.label)}</text>`);
+    });
+    if (current !== null) {
+      const markerValue = currentOutside ? Math.min(upper, Math.max(lower, current)) : current;
+      const y = yFor(markerValue);
+      const markerNote = currentOutside ? `Current drawdown ${formatValue(current)} is outside the historical scale` : `Current drawdown: ${formatValue(current)}`;
+      if (y >= top && y <= height - bottom) svg.push(`<line class='current-line' x1='${left}' x2='${width - right}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'><title>${esc(markerNote)}</title></line>`);
+    }
+    svg.push(`<text x='${left + plotWidth / 2}' y='${height - 12}' text-anchor='middle'>Episode rank (sorted ascending)</text><text x='${left / 2}' y='${top + plotHeight / 2}' text-anchor='middle' transform='rotate(-90 ${left / 2} ${top + plotHeight / 2})'>${esc(label)}</text></svg>`);
+    return svg.join("");
+  }
+  function ddEpisodeTable(data) {
+    const episodes = (data.episodes || []).slice().sort(ddEpisodeSort);
+    if (!episodes.length) return "<div class='empty'>No drawdown episodes were detected on the selected curve.</div>";
+    const rows = episodes.map((episode) => `<tr class='${episode.status === "open" ? "open-row" : ""}'><td>${esc(String(episode.episode_id))}</td><td>${esc(episode.status === "open" ? "Open / current" : "Completed")}</td><td>${esc(ddDepth(episode.depth_percent))}</td><td>${esc(ddDepth(episode.depth_money, "money"))}</td><td>${esc(ddDuration(episode.duration_days))}</td><td>${esc(ddDuration(episode.duration_periods, "periods"))}</td><td>${esc(ddRank(episode.depth_percentile))}</td><td>${esc(ddRank(episode.depth_tail_rarity_percent))}</td><td>${esc(ddRank(episode.duration_percentile))}</td><td>${esc(ddRank(episode.duration_tail_rarity_percent))}</td><td>${esc(isoTime(episode.peak_time))}</td><td>${esc(isoTime(episode.trough_time))}</td><td>${esc(isoTime(episode.recovery_time))}</td><td>${esc(isoTime(episode.end_time))}</td></tr>`).join("");
+    return `<div class='dd-table-wrap'><table class='data-table dd-table'><thead><tr><th>Episode</th><th>Status</th><th>Depth %</th><th>Depth money</th><th>Duration days</th><th>Periods</th><th>Depth percentile</th><th>Depth tail rarity</th><th>Duration percentile</th><th>Duration tail rarity</th><th>Peak</th><th>Trough</th><th>Recovery</th><th>End</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  function renderDrawdownSubview(view) {
+    const data = view.data || {};
+    const current = (data.episodes || []).find((episode) => episode.status === "open");
+    const completed = (data.episodes || []).filter((episode) => episode.status === "completed");
+    const currentDepth = current ? ddDepth(current.depth_percent) : "Not currently underwater";
+    const currentDuration = current ? ddDuration(current.duration_days) : "Not currently underwater";
+    const depthP95 = data.depth_distribution?.p95;
+    const durationP95 = data.duration_distribution?.p95;
+    const currentExplanation = current
+      ? current.depth_percentile == null || current.duration_percentile == null
+        ? "Current drawdown is retained, but one or both percentile ranks are undefined because the completed reference history is unavailable for that axis."
+        : `Current drawdown ranks at ${ddRank(current.depth_percentile)} by depth and ${ddRank(current.duration_percentile)} by duration; tail rarity is the share of completed episodes strictly worse on each axis.`
+      : "Not currently underwater. Historical completed episodes remain available for reference.";
+    const depthValues = completed.map((episode) => ({episode_id: episode.episode_id, value: episode.depth_percent})).filter((value) => value.value !== null && value.value !== undefined);
+    const durationValues = completed.map((episode) => ({episode_id: episode.episode_id, value: episode.duration_days})).filter((value) => value.value !== null && value.value !== undefined);
+    return `<div class='panel dd-subview'><div class='dd-basis-label'>${esc(view.label)}</div><div class='dd-summary-grid'><div class='dd-stat'><div class='label'>Completed episodes</div><div class='value'>${esc(fmt(completed.length, "integer"))}</div></div><div class='dd-stat current'><div class='label'>Current depth</div><div class='value'>${esc(currentDepth)}</div></div><div class='dd-stat current'><div class='label'>Current duration</div><div class='value'>${esc(currentDuration)}</div></div><div class='dd-stat'><div class='label'>Historical P95 depth</div><div class='value'>${esc(ddDepth(depthP95))}</div></div><div class='dd-stat'><div class='label'>Historical P95 duration</div><div class='value'>${esc(ddDuration(durationP95))}</div></div></div><p class='small dd-caption'>${esc(currentExplanation)} Depth is shown as a negative percentage in the report; the typed API stores positive depth magnitudes. ${esc(data.curve_source || "")} · ${esc(data.curve_basis || "")} · ${esc(String(data.observation_count || 0))} observations.</p><div class='panel chart-panel'><div class='dd-chart-grid'><div><h3>Depth × duration</h3><div class='dd-chart-wrap'>${ddScatterSvg(data)}</div><div class='small'>Dashed guides show historical P95 depth and duration where they fit the chart. The open episode is highlighted in amber.</div></div><div><h3>Historical episode distributions</h3><div class='small'>Completed episodes only; one bar represents each episode, sorted ascending by value. Red dotted lines mark the historical P5, median, and P95 positions; hover a bar or marker for its exact value. The current drawdown is shown as a horizontal reference line.</div><div class='dd-chart-wrap'>${ddHistogramSvg(data, "depth", "Depth (%)", depthValues, current?.depth_percent)}</div><div class='dd-chart-wrap'>${ddHistogramSvg(data, "duration", "Duration (days)", durationValues, current?.duration_days)}</div></div></div></div><div class='panel' style='margin-top:1rem'><h3>Reference percentiles</h3><div class='dd-table-wrap'><table class='data-table dd-table'><thead><tr><th>Axis</th><th>P50</th><th>P90</th><th>P95</th><th>P99</th><th>Maximum</th></tr></thead><tbody>${ddDistributionRows(data)}</tbody></table></div></div><div class='panel' style='margin-top:1rem'><h3>Episodes · current first, then newest completed</h3>${ddEpisodeTable(data)}</div></div>`;
+  }
+  function renderDrawdown() {
+    const panel = $("drawdownPanel");
+    const views = drawdownViews();
+    panel.innerHTML = views.length ? views.map(renderDrawdownSubview).join("") : "<div class='notice muted'>Drawdown analysis is unavailable for the selected view.</div>";
+    $("downloadDrawdownSummary").disabled = !views.length;
+    $("downloadDrawdownEpisodes").disabled = !views.length;
+  }
+  function drawdownExportData() {
+    return drawdownViews()[0]?.data || null;
+  }
+  function drawdownCsvValue(value) { return csvValue(value); }
+  function downloadDrawdownSummary() {
+    const data = drawdownExportData();
+    if (!data) return;
+    const rows = [["axis", "unit", "count", "minimum", "p50", "p90", "p95", "p99", "maximum"], ...[["depth_percent", data.depth_distribution, "percent"], ["depth_money", data.depth_money_distribution, "money"], ["duration_days", data.duration_distribution, "days"], ["duration_periods", data.duration_periods_distribution, "periods"]].map(([axis, distribution, unit]) => [axis, unit, distribution?.values?.length || 0, distribution?.minimum, distribution?.p50, distribution?.p90, distribution?.p95, distribution?.p99, distribution?.maximum])];
+    download("drawdown-summary.csv", rows.map((row) => row.map(drawdownCsvValue).join(",")).join("\n"), "text/csv");
+  }
+  function downloadDrawdownEpisodes() {
+    const data = drawdownExportData();
+    if (!data) return;
+    const headers = ["episode_id", "status", "peak_index", "trough_index", "end_index", "recovery_index", "peak_time", "trough_time", "recovery_time", "end_time", "peak_value", "trough_value", "recovery_value", "end_value", "depth_money", "depth_percent", "duration_days", "duration_periods", "depth_percentile", "depth_tail_rarity_percent", "depth_ordinal_rank", "duration_percentile", "duration_tail_rarity_percent", "duration_ordinal_rank"];
+    const rows = (data.episodes || []).slice().sort(ddEpisodeSort).map((episode) => headers.map((key) => episode[key]));
+    download("drawdown-episodes.csv", [headers, ...rows].map((row) => row.map(drawdownCsvValue).join(",")).join("\n"), "text/csv");
   }
   function getCurve(view, key) {
     if (key === "reconstructed") return view.balance;
@@ -1468,11 +1784,16 @@ p { color: var(--muted); }
   function renderCorrelation() {
     const panel = $("correlationPanel");
     const controls = $("correlationControls");
-    if (currentView().kind !== "portfolio" || !currentView().correlations) { controls.style.display = "none"; panel.innerHTML = "<div class='notice muted'>Correlation is not applicable to a single strategy. Select a portfolio to compare daily realized net-profit series.</div>"; return; }
+    const view = currentView();
+    if (view.kind !== "portfolio" || !view.correlations) { controls.style.display = "none"; panel.innerHTML = "<div class='notice muted'>Correlation is not applicable to a single strategy. Select a portfolio to compare realized net-profit series.</div>"; return; }
     controls.style.display = "flex";
-    const daily = currentView().correlations.daily_profit;
+    const frequency = state.correlationFrequency === "weekly" ? "weekly" : "daily";
+    $("correlationFrequency").value = frequency;
+    const correlation = view.correlations[`${frequency}_profit`] || view.correlations.daily_profit;
+    const periodLabel = frequency === "weekly" ? "Weekly" : "Daily";
     const modeLabel = state.correlationMode === "allocated" ? "allocated" : "raw";
-    panel.innerHTML = `<div class='small'>Daily realized net-profit correlation · ${esc(modeLabel)} series · ${esc(String(daily.observations))} overlapping observations · ${esc(daily.timezone || "report timezone")}</div><div class='matrix-wrap' style='margin-top:.75rem'>${matrixTable(daily.matrix)}</div><p class='small'>Positive scalar allocation changes profit magnitude but not Pearson correlation. Raw and allocated series are both embedded for export and audit.</p>`;
+    const aggregationNote = frequency === "weekly" ? "Weeks run Monday–Sunday in the report timezone." : "Dates use the report timezone.";
+    panel.innerHTML = `<div class='small'>${esc(periodLabel)} realized net-profit correlation · ${esc(modeLabel)} series · ${esc(String(correlation.observations))} overlapping observations · ${esc(correlation.timezone || "report timezone")}</div><div class='matrix-wrap' style='margin-top:.75rem'>${matrixTable(correlation.matrix)}</div><p class='small'>${esc(aggregationNote)} Positive scalar allocation changes profit magnitude but not Pearson correlation. Raw and allocated series are both embedded for export and audit.</p>`;
   }
   function renderWarnings() {
     const view = currentView();
@@ -1528,7 +1849,7 @@ p { color: var(--muted); }
     selectTab(nextTab);
     document.querySelector(`[data-tab="${nextTab}"]`)?.focus();
   }
-  function rerender() { renderTabs(); renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
+  function rerender() { renderTabs(); renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderDrawdown(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
   function download(name, content, type) { const blob = content instanceof Blob ? content : new Blob([content], {type}); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
   function downloadDataUrl(name, dataUrl) { const link = document.createElement("a"); link.href = dataUrl; link.download = name; link.click(); }
   function csvValue(value) { const text = value == null ? "" : String(value); return `"${text.replace(/"/g, '""')}"`; }
@@ -1572,10 +1893,13 @@ p { color: var(--muted); }
     $("resetChart").addEventListener("click", () => { state.windowStart = 0; state.windowEnd = 1; renderEquity(); updateHash(); });
     $("groupingSelect").addEventListener("change", (event) => { state.grouping = event.target.value; renderBars(); });
     $("tradeMeasure").addEventListener("change", (event) => { state.measure = event.target.value; renderBars(); });
+    $("correlationFrequency").addEventListener("change", (event) => { state.correlationFrequency = event.target.value; renderCorrelation(); updateHash(); });
     $("correlationMode").addEventListener("change", (event) => { state.correlationMode = event.target.value; renderCorrelation(); });
     $("tradeSearch").addEventListener("input", (event) => { state.search = event.target.value; state.page = 1; renderTrades(); });
     $("tradeSort").addEventListener("change", (event) => { state.sort = event.target.value; renderTrades(); });
     $("downloadMonteCarlo").addEventListener("click", downloadMonteCarlo);
+    $("downloadDrawdownSummary").addEventListener("click", downloadDrawdownSummary);
+    $("downloadDrawdownEpisodes").addEventListener("click", downloadDrawdownEpisodes);
     $("downloadCsv").addEventListener("click", downloadCsv); $("downloadJson").addEventListener("click", downloadJson); $("downloadSvg").addEventListener("click", downloadSvg); $("downloadPng").addEventListener("click", downloadPng);
     $("copyLink").addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.href); $("copyLink").textContent = "Copied"; setTimeout(() => $("copyLink").textContent = "Copy view link", 1200); } catch (_error) { $("copyLink").textContent = "Copy unavailable"; } });
   }

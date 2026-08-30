@@ -13,6 +13,36 @@ Source reports:
 - [Sanitized single report](sample_reports/example_strategy_a.html)
 - [Sanitized portfolio report B](sample_reports/example_strategy_b.html)
 - [Sanitized portfolio report C](sample_reports/example_strategy_c.html)
+- [Synthetic drawdown source report](sample_reports/synthetic_drawdown_36_episodes.html)
+- [Synthetic portfolio strategy A source report](sample_reports/synthetic_portfolio_strategy_a.html)
+- [Synthetic portfolio strategy B source report](sample_reports/synthetic_portfolio_strategy_b.html)
+
+Synthetic drawdown example:
+
+- [Interactive synthetic drawdown report](synthetic-drawdown-report.html)
+- [Synthetic drawdown analysis](synthetic-drawdown-analysis.md)
+- [Synthetic drawdown summary CSV](synthetic-drawdown-summary.csv)
+- [Synthetic drawdown episodes CSV](synthetic-drawdown-episodes.csv)
+
+The synthetic fixture contains 144 deterministic completed positions arranged as
+36 recovered drawdown episodes. It is designed to exercise the depth × duration
+view with varied depths, elapsed durations, and observation-period counts; it is
+not a real trading result. Regenerate the fixture and outputs with
+`python3 examples/generate_synthetic_drawdown_example.py`.
+
+Synthetic portfolio example:
+
+- [Interactive 50/50 portfolio report](synthetic-portfolio-report.html)
+- [Synthetic portfolio analysis](synthetic-portfolio-analysis.md)
+- [Synthetic portfolio drawdown summary CSV](synthetic-portfolio-drawdown-summary.csv)
+- [Synthetic portfolio drawdown episodes CSV](synthetic-portfolio-drawdown-episodes.csv)
+
+The synthetic portfolio combines two distinct deterministic 36-episode source
+reports at 50% / 50% weights and a `$100,000` portfolio initial capital. Its
+Drawdown tab shows the allocated portfolio curve and the separately labelled
+member views; each view calculates its own P5, median, and P95 markers without
+pooling member episodes. Regenerate it with
+`python3 examples/generate_synthetic_portfolio_example.py`.
 
 Single-report outputs:
 
@@ -21,6 +51,8 @@ Single-report outputs:
 - [Metrics CSV](metrics.csv)
 - [Monthly returns CSV](monthly.csv)
 - [Monthly drawdown CSV](monthly-drawdown.csv)
+- [Drawdown depth × duration summary CSV](drawdown-summary.csv)
+- [Drawdown depth × duration episodes CSV](drawdown-episodes.csv)
 - [Year/month/YTD performance CSV](monthly-performance.csv)
 - [Equity and drawdown chart](equity-drawdown.png)
 - [Long-only result](long-only.md)
@@ -45,8 +77,9 @@ Portfolio outputs:
 The interactive portfolio page combines the three sanitized example reports
 with equal raw weights (`1.0` each), normalized to one-third allocations and a
 `$300,000` portfolio initial capital. It includes the combined metrics,
-filterable member curves, monthly return/drawdown heat maps, trade analysis,
-and daily profit-correlation matrix. Its section controls are true in-page tabs
+filterable member curves, monthly return/drawdown heat maps, drawdown depth ×
+duration episodes, trade analysis, and selectable daily/weekly profit-correlation matrix. Its
+section controls are true in-page tabs
 within one HTML file, with only the selected panel visible. The **Edit name**
 control changes only presentation metadata and persists the chosen name in the
 shareable URL fragment.

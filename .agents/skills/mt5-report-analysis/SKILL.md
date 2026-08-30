@@ -59,12 +59,15 @@ For requests such as:
   profit factor, SQN, win rate, average win, and average loss?”
 - “Which was the best or worst month?”
 - “Show monthly returns and monthly drawdown.”
+- “What do the drawdown depth and duration distributions look like?”
+- “Is the current drawdown unusual compared with this strategy's history?”
 - “Compare the MT5-reported metrics with the recalculated metrics.”
 - “Which metrics are undefined, and why?”
 
 Use `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
-`result.monthly_performance`, `result.balance`, `result.equity`,
-`result.validation`, `result.warnings`, and `result.provenance`.
+`result.monthly_performance`, `result.drawdown_analysis`, `result.balance`,
+`result.equity`, `result.validation`, `result.warnings`, and
+`result.provenance`.
 
 For Sharpe questions, keep the definitions separate:
 - `result.metrics.custom_trade_event_sharpe` is the unannualized closed-trade
@@ -90,6 +93,24 @@ result.to_json()          # deterministic JSON
 result.to_csv("monthly")
 result.to_markdown()
 ```
+
+### Drawdown depth × duration
+
+For descriptive drawdown questions, use the eager `result.drawdown_analysis`
+or the pure `analyze_drawdowns(curve)` API. It walks the selected primary curve
+without interpolation, resampling, or randomness. Completed episodes define the
+P50/P90/P95/P99 depth and duration reference distributions; an open current
+episode is retained and ranked when history exists but is excluded from those
+distributions. Typed depth values are positive magnitudes, while reports render
+drawdown as a negative decline. Use `duration_days` for exact elapsed time and
+`duration_periods` for supplied observation transitions.
+
+For portfolios, use `portfolio.drawdown_analysis` for the allocated portfolio
+curve and `portfolio.members[*].raw_drawdown_analysis` plus
+`allocated_drawdown_analysis` for clearly labelled member views. Do not pool
+member episodes. The HTML report's Drawdown tab and the
+`drawdown_summary`/`drawdown_episodes` CSV serializer sections are presentation
+seams over these typed results.
 
 ### XML/HTML comparison
 
@@ -196,29 +217,33 @@ portfolio = analyze_portfolio(
 One report is one strategy. Use static capital-allocation weights, keep
 member trades separate, and never net trades across strategies. Retrieve
 portfolio metrics and tables from `portfolio.metrics`, `portfolio.monthly`,
-`portfolio.monthly_drawdown`, `portfolio.monthly_performance`, and the
-labelled portfolio matrices. Keep each member's filters, what-if configuration,
+`portfolio.monthly_drawdown`, `portfolio.monthly_performance`,
+`portfolio.drawdown_analysis`, and the labelled portfolio matrices. Keep each
+member's raw/allocated drawdown analyses, filters, what-if configuration,
 and sample periods on the member. Require compatible currencies and
 report/broker timezones; reject incompatible portfolio inputs rather than
 silently mixing them. If member period boundaries differ, use the supported
 intersection behavior and surface the warning.
 
-### Daily profit correlation
+### Daily and weekly profit correlation
 
 For “calculate profit correlation”, “show a correlation table”, or “create a
 heat map”, use the eager portfolio result:
 
 ```python
-correlation = portfolio.correlations.daily_profit
+daily = portfolio.correlations.daily_profit
+weekly = portfolio.correlations.weekly_profit
 ```
 
-It contains raw daily realized-profit series, capital-scaled allocated series,
-a labelled matrix, observation counts, diagnostics, and period-scoped results
-in `correlations.by_period`. Dates use broker/report timestamps and align over
-overlapping active dates. Undefined cells are `None` with diagnostics. Use
-`save_correlation_heatmap(correlation, destination)` for the deterministic
-fixed `[-1, 1]` heat-map artifact with two-decimal labels and grey undefined
-cells.
+Each result contains raw realized-profit series, capital-scaled allocated
+series, a labelled matrix, observation counts, diagnostics, and (where sample
+periods are enabled) period-scoped results in `correlations.by_period` and
+`correlations.weekly_by_period`. Daily observations use broker/report dates.
+Weekly observations are created by summing the aligned daily series into
+Monday–Sunday calendar weeks in the report timezone. Undefined cells are `None`
+with diagnostics. Use `save_correlation_heatmap(daily, destination)` or pass
+`weekly` for the deterministic fixed `[-1, 1]` heat-map artifact with
+two-decimal labels and grey undefined cells.
 
 ### Trade-profit bar charts
 
@@ -448,7 +473,9 @@ CSV/JSON/SVG/PNG downloads. The interactive overview intentionally omits the
 custom trade-event Sharpe, daily Sharpe, and SQN cards; the canonical Python
 `AnalysisResult.metrics` object is unchanged. For portfolio results it also
 includes member selectors, allocated/member equity toggles, and the eager daily
-realized-profit correlation matrix/heat map. Direction changes are applied
+or weekly realized-profit correlation matrix/heat map. The browser frequency
+selector switches between the two already-calculated typed results. Direction
+changes are applied
 independently to each portfolio member before the portfolio is recombined;
 trades are never netted.
 
