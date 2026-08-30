@@ -6,7 +6,9 @@ contains deterministic synthetic data: strategy names, symbols, inputs,
 comments, identifiers, timestamps, prices, and P&L were replaced or scrambled.
 It is not a real trading result. Human-facing Markdown and CSV values are
 formatted to 2 decimal places; the API's in-memory values remain available for
-analysis and reproducibility.
+analysis and reproducibility. Real production reports and production-derived
+HTML must remain outside this repository; ad-hoc HTML files under `results/`
+are ignored by default.
 
 Source reports:
 
@@ -89,7 +91,11 @@ Monte Carlo outputs:
 - [Monte Carlo p5/p50/p95 summary](monte-carlo-summary.md)
 - [Monte Carlo simulated paths](monte-carlo-paths.png)
 
-Visual outputs:
+## Visual outputs (sanitized/synthetic fixtures)
+
+These diagrams are documentation examples generated from the committed
+sanitized or synthetic fixtures above. No production report or
+production-account data is embedded in this gallery.
 
 ![Equity and drawdown](equity-drawdown.png)
 

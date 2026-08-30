@@ -96,6 +96,11 @@ The API returns typed, eager, deterministic results. Human-facing example tables
 and reports in [`results/`](results/README.md) display numeric values to **2
 decimal places**.
 
+**Repository safety note:** committed HTML and diagrams are sanitized or synthetic
+examples only. Real production reports, production-derived HTML, and account
+data must stay outside this repository. New ad-hoc HTML under `results/` is
+ignored by default and is not part of the documented example set.
+
 ### Preferred analysis report
 
 When a strategy or portfolio is analysed without a more specific output format,
@@ -183,7 +188,11 @@ Example output:
 | 2024 | 0.15% | 0.09% | 0.06% | -0.09% | — | — | — | — | — | — | — | — | 0.21% |
 ```
 
-Visual examples:
+### Visual examples (sanitized/synthetic fixtures)
+
+The diagrams below are committed documentation fixtures generated from sanitized
+or synthetic inputs. They demonstrate the available chart and report views
+without embedding any production report or production account data.
 
 [![Equity and drawdown](results/equity-drawdown.png)](results/equity-drawdown.png)
 
