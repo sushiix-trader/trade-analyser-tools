@@ -367,6 +367,14 @@ Each `PortfolioMemberResult` also exposes clearly labelled
 `raw_drawdown_analysis` and `allocated_drawdown_analysis`; member analyses and
 portfolio curves are never pooled into one reference distribution.
 
+Portfolio curve aggregation replays **every** member observation in
+chronological order (stable by member index, then point index), including
+multiple balance updates that share the same timestamp. Collapsing to unique
+timestamps and keeping only the last value per second would erase intermediate
+peak-to-trough paths and understate portfolio drawdown. Member dollar paths are
+still capital-weighted; percentage drawdowns on each allocated member curve
+match that member’s unscaled percentage path.
+
 ## Build a portfolio
 
 One report represents one strategy. Portfolio members remain separate and

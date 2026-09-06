@@ -29,6 +29,7 @@ from .analysis import (
     _monthly_performance_table,
     _report_from_dict,
     _curve_monthly,
+    _extend_unique_diagnostics,
     analyze,
 )
 from .config import AnalysisConfig, SharpeConfig
@@ -59,6 +60,7 @@ from .trade_profit import (
     TradeProfitAnalysis,
     build_trade_profit_analysis,
 )
+from .return_distributions import ReturnDistributions, analyze_return_distributions
 from .what_if import WhatIfConfig
 
 _SUPPORTED_PRIMARY_CURVES = frozenset(("source_then_reconstructed", "source", "reconstructed"))
@@ -153,6 +155,8 @@ class PortfolioMemberResult:
     allocated_curve: CurveResult
     raw_drawdown_analysis: DrawdownAnalysis
     allocated_drawdown_analysis: DrawdownAnalysis
+    raw_return_distributions: ReturnDistributions
+    allocated_return_distributions: ReturnDistributions
     active_start: datetime | None
     active_end: datetime | None
 
@@ -220,6 +224,10 @@ class PortfolioPeriodResult:
     def what_if(self):
         return self.analysis.what_if
 
+    @property
+    def return_distributions(self) -> ReturnDistributions:
+        return self.analysis.return_distributions
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -283,6 +291,7 @@ class PortfolioAnalysisResult:
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
     drawdown_analysis: DrawdownAnalysis
+    return_distributions: ReturnDistributions
     monthly_performance: MonthlyPerformanceTable
     trade_profit: TradeProfitAnalysis
     raw_trade_profit: dict[str, TradeProfitAnalysis]
@@ -578,6 +587,16 @@ class PortfolioAnalysisResult:
                     if isinstance(item.get("allocated_drawdown_analysis"), dict)
                     else analyze_drawdowns(allocated_curve)
                 ),
+                raw_return_distributions=(
+                    ReturnDistributions.from_dict(item["raw_return_distributions"])
+                    if isinstance(item.get("raw_return_distributions"), dict)
+                    else analyze_return_distributions(raw_curve)
+                ),
+                allocated_return_distributions=(
+                    ReturnDistributions.from_dict(item["allocated_return_distributions"])
+                    if isinstance(item.get("allocated_return_distributions"), dict)
+                    else analyze_return_distributions(allocated_curve)
+                ),
                 active_start=_datetime(item.get("active_start")),
                 active_end=_datetime(item.get("active_end")),
             )
@@ -657,6 +676,12 @@ class PortfolioAnalysisResult:
             if isinstance(drawdown_data, dict)
             else analyze_drawdowns(portfolio_equity)
         )
+        return_distribution_data = payload.get("return_distributions")
+        portfolio_return_distributions = (
+            ReturnDistributions.from_dict(return_distribution_data)
+            if isinstance(return_distribution_data, dict)
+            else analyze_return_distributions(portfolio_equity)
+        )
         return cls(
             members=members,
             portfolio_initial_capital=payload["portfolio_initial_capital"],
@@ -674,6 +699,7 @@ class PortfolioAnalysisResult:
             monthly=tuple(MonthlyPerformance(**item) for item in payload.get("monthly", [])),
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
             drawdown_analysis=portfolio_drawdown,
+            return_distributions=portfolio_return_distributions,
             monthly_performance=_monthly_table_from_payload(payload, tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))),
             trade_profit=trade_profit,
             raw_trade_profit=raw_trade_profit,
@@ -869,22 +895,40 @@ def _aggregate_curves(
     source: str,
     basis: str,
 ) -> CurveResult:
+    """Sum allocated member curves while preserving every observation.
+
+    Member curves often contain multiple balance updates at the same timestamp
+    (several positions closing in one second). Collapsing to unique timestamps
+    and taking the last value per second erases intermediate peak-to-trough
+    paths, so portfolio drawdown/return statistics would understate risk.
+    Aggregate by replaying each member observation in chronological order
+    (stable by member index, then point index) and recording the portfolio
+    total after every update.
+    """
+
     if not curves:
         return CurveResult((), (), source, basis, 0.0)
-    all_timestamps = sorted({timestamp for curve in curves for timestamp in curve.timestamps})
     initial = float(sum(capitals))
-    if not all_timestamps:
+    scales = [
+        (capital / curve.initial_value if curve.initial_value else 0.0)
+        for curve, capital in zip(curves, capitals)
+    ]
+    events: list[tuple[datetime, int, int, float]] = []
+    for member_index, (curve, scale) in enumerate(zip(curves, scales)):
+        for point_index, (timestamp, value) in enumerate(zip(curve.timestamps, curve.values)):
+            events.append((timestamp, member_index, point_index, float(value) * scale))
+    if not events:
         return CurveResult((), (initial,), source, basis, initial)
-    first = all_timestamps[0]
+    events.sort(key=lambda item: (item[0], item[1], item[2]))
+    first = events[0][0]
     baseline = first - timedelta(microseconds=1) if first > datetime.min else first
-    timestamps = [baseline] + all_timestamps
-    values = []
-    for timestamp in timestamps:
-        values.append(float(sum(
-            _curve_value(curve, timestamp)
-            * (capital / curve.initial_value if curve.initial_value else 0.0)
-            for curve, capital in zip(curves, capitals)
-        )))
+    last_values = [float(capital) for capital in capitals]
+    timestamps = [baseline]
+    values = [initial]
+    for timestamp, member_index, _point_index, scaled_value in events:
+        last_values[member_index] = scaled_value
+        timestamps.append(timestamp)
+        values.append(float(sum(last_values)))
     return CurveResult(tuple(timestamps), tuple(values), source, basis, initial)
 
 
@@ -1187,6 +1231,8 @@ def combine_analyses(
         allocated_selected = _scale_curve(selected, allocation)
         raw_drawdown_analysis = analyze_drawdowns(raw_selected)
         allocated_drawdown_analysis = analyze_drawdowns(allocated_selected)
+        raw_return_distributions = analyze_return_distributions(raw_selected)
+        allocated_return_distributions = analyze_return_distributions(allocated_selected)
         raw_reconstructed = reconstructed
         active_start, active_end = _active_bounds(raw_selected)
         if first_start is None:
@@ -1233,12 +1279,16 @@ def combine_analyses(
             allocated_curve=allocated_selected,
             raw_drawdown_analysis=raw_drawdown_analysis,
             allocated_drawdown_analysis=allocated_drawdown_analysis,
+            raw_return_distributions=raw_return_distributions,
+            allocated_return_distributions=allocated_return_distributions,
             active_start=active_start,
             active_end=active_end,
         ))
         diagnostics.extend(prepared.analysis.warnings)
         diagnostics.extend(raw_drawdown_analysis.warnings)
         diagnostics.extend(allocated_drawdown_analysis.warnings)
+        _extend_unique_diagnostics(diagnostics, raw_return_distributions.warnings)
+        _extend_unique_diagnostics(diagnostics, allocated_return_distributions.warnings)
 
     reconstructed_allocated = _aggregate_curves(
         reconstructed_curves,
@@ -1259,6 +1309,8 @@ def combine_analyses(
         basis="equity" if all(curve.basis == "equity" for curve in selected_allocated_curves) else "balance",
     )
     portfolio_drawdown_analysis = analyze_drawdowns(allocated_portfolio_curve)
+    portfolio_return_distributions = analyze_return_distributions(allocated_portfolio_curve)
+    _extend_unique_diagnostics(diagnostics, portfolio_return_distributions.warnings)
 
     source_balance = None
     if len(source_balance_curves) == len(members):
@@ -1513,6 +1565,7 @@ def combine_analyses(
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
         drawdown_analysis=portfolio_drawdown_analysis,
+        return_distributions=portfolio_return_distributions,
         monthly_performance=monthly_performance,
         trade_profit=trade_profit,
         raw_trade_profit=raw_trade_profit,

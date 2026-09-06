@@ -225,6 +225,54 @@ class DrawdownAnalysisTests(unittest.TestCase):
         self.assertEqual(restored.drawdown_analysis, portfolio.drawdown_analysis)
         self.assertEqual(restored.members[0].raw_drawdown_analysis, member.raw_drawdown_analysis)
 
+    def test_portfolio_drawdown_keeps_same_timestamp_member_path(self) -> None:
+        """Portfolio aggregation must not collapse same-second equity updates.
+
+        A member that peaks and then loses at one close timestamp still contributes
+        that intermediate peak-to-trough path to the allocated portfolio curve.
+        """
+
+        same_close = datetime(2024, 1, 3, 10, 0, 0)
+        left = analyze(Report(
+            initial_deposit=1000.0,
+            currency="USD",
+            timezone="UTC",
+            trades=[
+                Trade("left-1", "TEST", TradeSide.LONG, 1.0, datetime(2024, 1, 1, 9, 0, 0), datetime(2024, 1, 2, 10, 0, 0), 1, 1, 100.0),
+                # Same close second: +100 then -150 → peak 1200, trough 1050 (raw DD $150).
+                Trade("left-2", "TEST", TradeSide.LONG, 1.0, datetime(2024, 1, 2, 9, 0, 0), same_close, 1, 1, 100.0),
+                Trade("left-3", "TEST", TradeSide.LONG, 1.0, datetime(2024, 1, 2, 10, 0, 0), same_close, 1, 1, -150.0),
+                Trade("left-4", "TEST", TradeSide.LONG, 1.0, datetime(2024, 1, 3, 11, 0, 0), datetime(2024, 1, 4, 10, 0, 0), 1, 1, 50.0),
+            ],
+        ))
+        right = analyze(Report(
+            initial_deposit=1000.0,
+            currency="USD",
+            timezone="UTC",
+            trades=[
+                Trade("right-1", "TEST", TradeSide.LONG, 1.0, datetime(2024, 1, 1, 8, 0, 0), datetime(2024, 1, 1, 12, 0, 0), 1, 1, 0.0),
+            ],
+        ))
+        portfolio = combine_analyses([
+            AnalyzedPortfolioMember("left", PortfolioMember("Left", "Left", weight=1.0), left),
+            AnalyzedPortfolioMember("right", PortfolioMember("Right", "Right", weight=1.0), right),
+        ], PortfolioConfig(portfolio_initial_capital=2000.0))
+
+        self.assertAlmostEqual(left.metrics.max_drawdown_money, 150.0)
+        self.assertGreaterEqual(
+            sum(1 for ts in portfolio.equity.timestamps if ts == same_close),
+            2,
+            "portfolio equity must retain multiple observations at the shared close timestamp",
+        )
+        self.assertAlmostEqual(portfolio.metrics.max_drawdown_money, 150.0)
+        self.assertAlmostEqual(portfolio.metrics.max_drawdown_pct, 150.0 / 2200.0 * 100.0)
+        current = portfolio.drawdown_analysis.current_episode
+        self.assertIsNotNone(current)
+        self.assertEqual(current.status, "open")
+        self.assertAlmostEqual(current.depth_money, 150.0)
+        self.assertEqual(current.peak_time, same_close)
+        self.assertEqual(current.trough_time, same_close)
+
 
 if __name__ == "__main__":
     unittest.main()
