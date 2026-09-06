@@ -230,6 +230,7 @@ def generate(output_dir: Path) -> dict[str, Path]:
         raise RuntimeError(
             f"expected {len(positions)} parsed positions, got {len(result.report.trades)}"
         )
+    # The committed example intentionally opts into Monte Carlo.
     monte_carlo = run_monte_carlo(
         result.report,
         DEFAULT_REPORT_MONTE_CARLO_CONFIG,

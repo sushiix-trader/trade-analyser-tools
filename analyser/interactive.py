@@ -323,9 +323,10 @@ def _safe_analysis_payload(
     config: InteractiveReportConfig,
     *,
     strategy_name: str | None = None,
+    include_return_distributions: bool = True,
 ) -> dict[str, Any]:
     report = result.report
-    return {
+    payload = {
         "kind": "single",
         "display_name": strategy_name or report.strategy_name or "Strategy",
         "currency": report.currency,
@@ -348,7 +349,19 @@ def _safe_analysis_payload(
         "provenance": _safe_provenance(result.provenance),
         "selection": _selection_payload(result),
         "filter": _json_safe(result.filter_spec.to_dict() if result.filter_spec else None),
+        "loss_clustering": _loss_clustering_payload(result.loss_clustering),
     }
+    if include_return_distributions:
+        payload["return_distributions"] = _json_safe(
+            result.return_distributions.to_interactive_dict()
+        )
+    return payload
+
+
+def _loss_clustering_payload(clustering: Any) -> dict[str, Any] | None:
+    if clustering is None:
+        return None
+    return _json_safe(to_primitive(clustering))
 
 
 def _monte_carlo_payload(
@@ -458,11 +471,18 @@ def _safe_portfolio_payload(
             member.analysis,
             config,
             strategy_name=member.strategy_name,
+            include_return_distributions=False,
         )
         member_analysis["allocated_equity"] = _curve_payload(member.allocated_curve)
         member_analysis["raw_equity"] = _curve_payload(member.raw_curve)
         member_analysis["raw_drawdown_analysis"] = _json_safe(to_primitive(member.raw_drawdown_analysis))
         member_analysis["allocated_drawdown_analysis"] = _json_safe(to_primitive(member.allocated_drawdown_analysis))
+        member_analysis["raw_return_distributions"] = _json_safe(
+            member.raw_return_distributions.to_interactive_dict()
+        )
+        member_analysis["allocated_return_distributions"] = _json_safe(
+            member.allocated_return_distributions.to_interactive_dict()
+        )
         members[member.member_key] = {
             "member_key": member.member_key,
             "strategy_name": member.strategy_name,
@@ -490,6 +510,9 @@ def _safe_portfolio_payload(
         "monthly_drawdown": _json_safe([to_primitive(row) for row in result.monthly_drawdown]),
         "monthly_drawdown_table": _monthly_drawdown_table_payload(result.monthly_drawdown),
         "drawdown_analysis": _json_safe(to_primitive(result.drawdown_analysis)),
+        "return_distributions": _json_safe(
+            result.return_distributions.to_interactive_dict()
+        ),
         "monthly_performance": _json_safe(result.monthly_performance.to_dict()),
         "equity": _curve_payload(result.equity),
         "balance": _curve_payload(result.balance),
@@ -503,6 +526,7 @@ def _safe_portfolio_payload(
         "warnings": _diagnostics_payload(result.warnings),
         "validation": _json_safe(result.validation.to_dict()),
         "provenance": _safe_provenance(result.provenance),
+        "loss_clustering": _loss_clustering_payload(result.loss_clustering),
     }
 
 
@@ -844,6 +868,30 @@ p { color: var(--muted); }
 .dd-chart .percentile-label { fill: #b91c1c; font-size: 10px; font-weight: 750; }
 .dd-chart .current-line { stroke: #d97706; stroke-width: 1.8; stroke-dasharray: 5 4; }
 .dd-chart .zero-line { stroke: rgba(36,59,83,.32); stroke-dasharray: 3 3; }
+.return-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: .65rem; margin-bottom: 1rem; }
+.return-stat { min-height: 80px; padding: .68rem; border-radius: 11px; background: rgba(93,182,255,.09); border: 1px solid rgba(93,182,255,.24); }
+.return-stat.emphasis { background: rgba(124,108,255,.12); border-color: rgba(124,108,255,.3); }
+.return-stat .label { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .045em; }
+.return-stat .value { margin-top: .3rem; font-size: 1.02rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.return-chart-wrap { width: 100%; overflow: hidden; }
+.return-chart { width: 100%; min-width: 0; height: auto; display: block; }
+.return-chart text { fill: #243b53; font-size: 11px; }
+.return-chart .grid { stroke: rgba(36,59,83,.16); stroke-width: 1; }
+.return-chart .axis { stroke: rgba(36,59,83,.42); stroke-width: 1; }
+.return-chart .zero-line { stroke: rgba(36,59,83,.38); stroke-dasharray: 3 3; }
+.return-chart .bar-positive { fill: rgba(66,174,133,.8); stroke: #17694d; stroke-width: .42; }
+.return-chart .bar-negative { fill: rgba(220,83,105,.82); stroke: #8d2339; stroke-width: .42; }
+.return-chart .bar-zero { fill: rgba(141,165,196,.7); stroke: #637b99; stroke-width: .42; }
+.return-chart .hist-positive { fill: rgba(66,174,133,.78); stroke: #17694d; stroke-width: .45; }
+.return-chart .hist-negative { fill: rgba(220,83,105,.8); stroke: #8d2339; stroke-width: .45; }
+.return-chart .hist-zero { fill: rgba(93,182,255,.78); stroke: #0b385f; stroke-width: .45; }
+.return-chart .percentile-line { stroke: #dc2626; stroke-width: 1.35; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.return-chart .percentile-label { fill: #b91c1c; font-size: 10px; font-weight: 750; }
+.return-table { margin-top: 1rem; }
+.return-summary-wrap { width: 100%; overflow: hidden; }
+.return-summary-table { width: 100%; min-width: 0; }
+.return-summary-table th, .return-summary-table td { text-align: right; }
+.return-summary-table th:first-child, .return-summary-table td:first-child { text-align: left; }
 .dd-table-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
 .dd-table { min-width: 1250px; }
 .dd-table th, .dd-table td { text-align: right; }
@@ -947,8 +995,8 @@ p { color: var(--muted); }
     <span class="meta" id="toolbarMeta"></span>
   </div>
   <nav class="nav" role="tablist" aria-label="Report sections">
-    <a id="tab-overview" href="#overview" role="tab" data-tab="overview" aria-controls="overview" aria-selected="true" tabindex="0">Overview</a><a id="tab-equity" href="#equity" role="tab" data-tab="equity" aria-controls="equity" aria-selected="false" tabindex="-1">Equity</a><a id="tab-drawdown" href="#drawdown" role="tab" data-tab="drawdown" aria-controls="drawdown" aria-selected="false" tabindex="-1">Drawdown</a><a id="tab-trade-analysis" href="#trade-analysis" role="tab" data-tab="trade-analysis" aria-controls="trade-analysis" aria-selected="false" tabindex="-1">Trade analysis</a>
-    <a id="tab-monthly" href="#monthly" role="tab" data-tab="monthly" aria-controls="monthly" aria-selected="false" tabindex="-1">Monthly performance</a><a id="tab-correlation" href="#correlation" role="tab" data-tab="correlation" aria-controls="correlation" aria-selected="false" tabindex="-1">Correlation</a><a id="tab-trades" href="#trades" role="tab" data-tab="trades" aria-controls="trades" aria-selected="false" tabindex="-1">Trades</a><a id="tab-monte-carlo" href="#monte-carlo" role="tab" data-tab="monte-carlo" aria-controls="monte-carlo" aria-selected="false" tabindex="-1" class="monte-carlo-tab">Monte Carlo</a><a id="tab-audit" href="#audit" role="tab" data-tab="audit" aria-controls="audit" aria-selected="false" tabindex="-1">Warnings & provenance</a>
+    <a id="tab-overview" href="#overview" role="tab" data-tab="overview" aria-controls="overview" aria-selected="true" tabindex="0">Overview</a><a id="tab-equity" href="#equity" role="tab" data-tab="equity" aria-controls="equity" aria-selected="false" tabindex="-1">Equity</a><a id="tab-drawdown" href="#drawdown" role="tab" data-tab="drawdown" aria-controls="drawdown" aria-selected="false" tabindex="-1">Drawdown</a><a id="tab-trade-analysis" href="#trade-analysis" role="tab" data-tab="trade-analysis" aria-controls="trade-analysis" aria-selected="false" tabindex="-1">Trade analysis</a><a id="tab-losses" href="#losses" role="tab" data-tab="losses" aria-controls="losses" aria-selected="false" tabindex="-1">Losses</a>
+    <a id="tab-monthly" href="#monthly" role="tab" data-tab="monthly" aria-controls="monthly" aria-selected="false" tabindex="-1">Monthly performance</a><a id="tab-return-distributions" href="#return-distributions" role="tab" data-tab="return-distributions" aria-controls="return-distributions" aria-selected="false" tabindex="-1">Return distributions</a><a id="tab-correlation" href="#correlation" role="tab" data-tab="correlation" aria-controls="correlation" aria-selected="false" tabindex="-1">Correlation</a><a id="tab-trades" href="#trades" role="tab" data-tab="trades" aria-controls="trades" aria-selected="false" tabindex="-1">Trades</a><a id="tab-monte-carlo" href="#monte-carlo" role="tab" data-tab="monte-carlo" aria-controls="monte-carlo" aria-selected="false" tabindex="-1" class="monte-carlo-tab">Monte Carlo</a><a id="tab-audit" href="#audit" role="tab" data-tab="audit" aria-controls="audit" aria-selected="false" tabindex="-1">Warnings & provenance</a>
   </nav>
 
   <main>
@@ -982,11 +1030,23 @@ p { color: var(--muted); }
       <div class="panel"><div id="tradeBars"></div></div>
     </section>
 
+    <section class="section tab-panel" id="losses" role="tabpanel" data-tab-panel="losses" aria-labelledby="tab-losses" hidden>
+      <div class="section-heading"><h2>Losing trades</h2><span class="small">Loss-only equity vs close time with a constant loss-rate reference (meets the curve at both ends). Equal-width day histogram of close→close gaps.</span></div>
+      <div class="panel" id="lossesPanel"></div>
+    </section>
+
     <section class="section tab-panel" id="monthly" role="tabpanel" data-tab-panel="monthly" aria-labelledby="tab-monthly" hidden>
       <div class="section-heading"><h2>Monthly performance</h2><span class="small">Percentages; two decimals; YTD is compounded. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyTable"></div></div>
       <div class="section-heading"><h2>Monthly drawdown</h2><span class="small">Maximum intramonth drawdown; Worst is the annual minimum. <span class="mobile-only">Swipe horizontally to view all columns.</span></span></div>
       <div class="panel monthly-panel"><div class="monthly-table-wrap" id="monthlyDrawdownTable"></div></div>
+    </section>
+
+    <section class="section tab-panel" id="return-distributions" role="tabpanel" data-tab-panel="return-distributions" aria-labelledby="tab-return-distributions" hidden>
+      <div class="section-heading"><h2>Return distributions</h2><div class="controls">
+        <label class="control-label" for="returnFrequency">Frequency</label><select id="returnFrequency" aria-label="Select return distribution frequency"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select>
+      </div></div>
+      <div id="returnDistributionPanel"></div>
     </section>
 
     <section class="section tab-panel" id="correlation" role="tabpanel" data-tab-panel="correlation" aria-labelledby="tab-correlation" hidden>
@@ -1023,7 +1083,7 @@ p { color: var(--muted); }
   "use strict";
   const report = JSON.parse(document.getElementById("report-data").textContent);
   const config = JSON.parse(document.getElementById("report-config").textContent);
-  const TAB_IDS = ["overview", "equity", "drawdown", "trade-analysis", "monthly", "correlation", "trades", "monte-carlo", "audit"];
+  const TAB_IDS = ["overview", "equity", "drawdown", "trade-analysis", "losses", "monthly", "return-distributions", "correlation", "trades", "monte-carlo", "audit"];
   const state = {
     activeTab: "overview",
     direction: report.default_direction || "all",
@@ -1037,6 +1097,7 @@ p { color: var(--muted); }
     measure: "net_profit",
     correlationFrequency: "daily",
     correlationMode: "raw",
+    returnFrequency: "monthly",
     search: "",
     sort: "close_desc",
     page: 1,
@@ -1154,7 +1215,7 @@ p { color: var(--muted); }
     $("reportTitleInput").value = title;
   }
   function updateHash() {
-    const params = new URLSearchParams({tab: state.activeTab, direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, correlation: state.correlationFrequency, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
+    const params = new URLSearchParams({tab: state.activeTab, direction: state.direction, data: state.data, curve: state.curve, equity: state.valueMode, drawdown: state.drawdownMode, correlation: state.correlationFrequency, returns: state.returnFrequency, members: state.showMembers ? "1" : "0", start: state.windowStart.toFixed(4), end: state.windowEnd.toFixed(4), title: state.title});
     history.replaceState(null, "", `#${params.toString()}`);
   }
   function readHash() {
@@ -1166,6 +1227,7 @@ p { color: var(--muted); }
     if (report.kind === "portfolio" && (params.get("data") === "portfolio" || report.variants.all.members?.[params.get("data")])) state.data = params.get("data");
     if (["percent", "money"].includes(params.get("equity"))) state.valueMode = params.get("equity");
     if (["daily", "weekly"].includes(params.get("correlation"))) state.correlationFrequency = params.get("correlation");
+    if (["monthly", "weekly", "daily"].includes(params.get("returns"))) state.returnFrequency = params.get("returns");
     state.drawdownMode = state.valueMode;
     state.showMembers = params.has("members") ? params.get("members") === "1" : report.kind === "portfolio";
     if (params.get("title")) applyTitle(params.get("title"));
@@ -1723,6 +1785,108 @@ p { color: var(--muted); }
     hover.addEventListener("pointerdown", (event) => { dragX = event.clientX; hover.setPointerCapture(event.pointerId); });
     hover.addEventListener("pointerup", (event) => { if (dragX !== null) { const delta = (dragX - event.clientX) / Math.max(1, hover.getBoundingClientRect().width); panChart(delta); } dragX = null; });
   }
+  function renderLosses() {
+    const panel = $("lossesPanel");
+    if (!panel) return;
+    const view = currentView();
+    const clustering = view.loss_clustering;
+    if (!clustering || !clustering.summary || Number(clustering.summary.loss_count || 0) === 0) {
+      panel.innerHTML = "<div class='empty'>No completed losing trades in this view.</div>";
+      return;
+    }
+    const summary = clustering.summary;
+    const share = summary.share_gaps_below_days || {};
+    const shareCards = Object.keys(share).sort().map((key) => {
+      const label = key.replace(/^lt_/, "Share gap < ").replace(/d$/, "d");
+      return `<div class='metric'><div class='label'>${esc(label)}</div><div class='value'>${esc(fmt(share[key] == null ? null : Number(share[key]) * 100, "pct"))}</div></div>`;
+    }).join("");
+    const cards = [
+      ["Loss count", fmt(summary.loss_count, "integer")],
+      ["Total loss $", fmt(summary.total_loss_money, "money")],
+      ["Mean gap", summary.mean_gap_days == null ? "N/A" : `${fmt(summary.mean_gap_days, "number")} d`],
+      ["Median gap", summary.median_gap_days == null ? "N/A" : `${fmt(summary.median_gap_days, "number")} d`],
+      ["P95 gap", summary.p95_gap_days == null ? "N/A" : `${fmt(summary.p95_gap_days, "number")} d`],
+      ["Max consecutive", fmt(summary.max_consecutive_losses, "integer")],
+      ["Loss-only max DD", fmt(summary.loss_only_max_drawdown_money, "money")],
+      ["Loss-only max DD %", fmt(summary.loss_only_max_drawdown_pct, "pct")],
+    ].map(([label, value]) => `<div class='metric'><div class='label'>${esc(label)}</div><div class='value'>${esc(value)}</div></div>`).join("") + shareCards;
+
+    const curve = clustering.curve || {};
+    const values = (curve.values || []).map(Number);
+    const times = (curve.timestamps || []).map((value) => new Date(value).getTime());
+    const currency = view.currency || "USD";
+    let equitySvg = "<div class='empty'>Loss-only curve unavailable.</div>";
+    if (values.length >= 2 && times.length === values.length) {
+      const left = 92, right = 1100, top = 28, bottom = 228;
+      const start = Math.min(...times), end = Math.max(...times);
+      let min = Math.min(...values), max = Math.max(...values);
+      if (min === max) max = min + 1;
+      const yTicks = niceTicks(min, max, 6);
+      min = yTicks[0];
+      max = yTicks[yTicks.length - 1];
+      const xAt = (ms) => left + ((ms - start) / (end - start || 1)) * (right - left);
+      const yFor = (value) => bottom - ((value - min) / (max - min || 1)) * (bottom - top);
+      const xTickCount = 8;
+      const xTicks = Array.from({length: xTickCount}, (_unused, index) => start + (end - start) * index / (xTickCount - 1));
+      const grid = [];
+      yTicks.forEach((value) => {
+        const y = yFor(value);
+        grid.push(`<line class='grid' x1='${left}' x2='${right}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/>`);
+        grid.push(`<text x='${left - 8}' y='${(y + 4).toFixed(2)}' text-anchor='end' font-size='11'>${esc(fmt(value, "money"))}</text>`);
+      });
+      xTicks.forEach((ms, index) => {
+        const x = xAt(ms);
+        const anchor = index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle";
+        grid.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${bottom}'/>`);
+        grid.push(`<line x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${bottom}' y2='${bottom + 5}' stroke='#6b7280'/>`);
+        grid.push(`<text x='${x.toFixed(2)}' y='${bottom + 18}' text-anchor='${anchor}' font-size='11'>${esc(formatDate(ms))}</text>`);
+      });
+      const points = values.map((value, index) => `${xAt(times[index]).toFixed(2)},${yFor(value).toFixed(2)}`);
+      const linear = `${xAt(start).toFixed(2)},${yFor(values[0]).toFixed(2)} ${xAt(end).toFixed(2)},${yFor(values[values.length - 1]).toFixed(2)}`;
+      equitySvg = `<svg class='chart' viewBox='0 0 1140 270' role='img' aria-label='Loss-only equity over time'><rect width='1140' height='270' fill='#ffffff'/><text x='${left}' y='16'>Loss-only equity vs close time</text><text x='${right}' y='16' text-anchor='end' fill='#6b7280' font-size='11'>dashed = constant loss rate</text>${grid.join("")}<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${bottom}'/><line class='axis' x1='${left}' x2='${right}' y1='${bottom}' y2='${bottom}'/><polyline fill='none' stroke='#6b7280' stroke-width='1.4' stroke-dasharray='6 4' points='${linear}'/><polyline fill='none' stroke='#c62828' stroke-width='1.8' points='${points.join(" ")}'/><text x='16' y='${((top + bottom) / 2).toFixed(2)}' text-anchor='middle' transform='rotate(-90 16 ${((top + bottom) / 2).toFixed(2)})' font-size='11'>Balance (${esc(currency)})</text><text x='${((left + right) / 2).toFixed(2)}' y='262' text-anchor='middle' font-size='11'>Close time</text></svg>`;
+    }
+
+    const histogram = clustering.gap_histogram || {bins: [], sample_count: 0};
+    const histBins = (histogram.bins || []).filter((bin) => Number(bin.count || 0) >= 0);
+    let histSvg = "<div class='empty'>Need at least two losses for inter-loss gaps.</div>";
+    if (Number(histogram.sample_count || 0) > 0 && histBins.length) {
+      const left = 92, right = 1100, top = 28, bottom = 228;
+      const xmin = 0;
+      const xmaxDays = Math.max(...histBins.map((bin) => Number(bin.right)));
+      const rawMax = Math.max(1, ...histBins.map((bin) => Number(bin.count || 0)));
+      const yTicks = niceTicks(0, rawMax, 6, true);
+      const ymax = Math.max(rawMax, yTicks[yTicks.length - 1] || rawMax);
+      const xTickCount = Math.min(12, Math.max(6, Math.ceil(xmaxDays) + 1));
+      const xTicks = niceTicks(xmin, xmaxDays, xTickCount);
+      const xForDays = (days) => left + ((Number(days) - xmin) / (xmaxDays - xmin || 1)) * (right - left);
+      const yForCount = (count) => bottom - (Number(count) / (ymax || 1)) * (bottom - top);
+      const grid = [];
+      yTicks.forEach((value) => {
+        if (value > ymax) return;
+        const y = yForCount(value);
+        grid.push(`<line class='grid' x1='${left}' x2='${right}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/>`);
+        grid.push(`<text x='${left - 8}' y='${(y + 4).toFixed(2)}' text-anchor='end' font-size='11'>${esc(fmt(value, "integer"))}</text>`);
+      });
+      xTicks.forEach((value, index) => {
+        const x = xForDays(value);
+        const anchor = index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle";
+        grid.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${bottom}'/>`);
+        grid.push(`<line x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${bottom}' y2='${bottom + 5}' stroke='#6b7280'/>`);
+        grid.push(`<text x='${x.toFixed(2)}' y='${bottom + 18}' text-anchor='${anchor}' font-size='11'>${esc(fmt(value, "number"))}</text>`);
+      });
+      const bars = histBins.map((bin) => {
+        const count = Number(bin.count || 0);
+        if (count <= 0) return "";
+        const x0 = xForDays(bin.left);
+        const x1 = xForDays(bin.right);
+        const y = yForCount(count);
+        return `<rect x='${x0.toFixed(2)}' y='${y.toFixed(2)}' width='${Math.max(1, x1 - x0).toFixed(2)}' height='${Math.max(1, bottom - y).toFixed(2)}' fill='#c62828' fill-opacity='0.82' stroke='#7f1d1d' stroke-width='0.4'><title>${esc(fmt(bin.left, "number"))} to ${esc(fmt(bin.right, "number"))} days · ${esc(String(count))}</title></rect>`;
+      }).join("");
+      histSvg = `<svg class='chart' viewBox='0 0 1140 270' role='img' aria-label='Days before previous loss histogram'><rect width='1140' height='270' fill='#ffffff'/><text x='${left}' y='16'>Days since previous loss</text>${grid.join("")}<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${bottom}'/><line class='axis' x1='${left}' x2='${right}' y1='${bottom}' y2='${bottom}'/>${bars}<text x='16' y='${((top + bottom) / 2).toFixed(2)}' text-anchor='middle' transform='rotate(-90 16 ${((top + bottom) / 2).toFixed(2)})' font-size='11'>Frequency</text><text x='${((left + right) / 2).toFixed(2)}' y='262' text-anchor='middle' font-size='11'>Days since previous loss</text></svg>`;
+    }
+
+    panel.innerHTML = `<div class='metric-grid'>${cards}</div><div class='panel chart-panel' style='margin-top:1rem'>${equitySvg}</div><div class='panel chart-panel' style='margin-top:1rem'>${histSvg}</div><p class='small'>Break-even trades are excluded. Loss equity X axis is close time (baseline + each losing close). The dashed line is constant loss rate over calendar time matched to the same start and end balances, so it always meets the curve at both ends — compare the path in between. Gap chart is an equal-width day histogram (close→close). Long/Short filters use the view-scoped payload.</p>`;
+  }
   function renderBars() {
     const view = currentView();
     const grouping = view.trade_profit?.[state.grouping];
@@ -1775,6 +1939,180 @@ p { color: var(--muted); }
     }
     const drawdownCell = (value) => `<td class='${shadeClass(value)}' style='${drawdownHeatStyle(value)}'>${esc(fmt(value, "pct"))}</td>`;
     $("monthlyDrawdownTable").innerHTML = `<table class='data-table monthly-table monthly-drawdown-table'><thead><tr><th>Year</th>${drawdownLabels.map((label) => `<th>${esc(label)}</th>`).join("")}<th>${esc(drawdownTable.worst_label || "Worst")}</th></tr></thead><tbody>${drawdownTable.rows.map((row) => `<tr><th>${row.year}</th>${row.monthly_drawdown_pct.map(drawdownCell).join("")}${drawdownCell(row.annual_worst_drawdown_pct)}</tr>`).join("")}</tbody></table>`;
+  }
+  function returnDistributionData() {
+    const member = currentMember();
+    if (member) return member.analysis?.allocated_return_distributions || member.analysis?.return_distributions;
+    return currentView().return_distributions;
+  }
+  function returnFrequencyLabel(frequency) {
+    return frequency === "daily" ? "Daily" : frequency === "weekly" ? "Weekly" : "Monthly";
+  }
+  function returnAxisLabel(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number.toFixed(2)}%` : "N/A";
+  }
+  function returnDistributionObservations(data) {
+    return (data?.ranked_observations || data?.observations || []).map((item) => ({
+      ...item,
+      value: item.return_pct === null || item.return_pct === undefined ? null : Number(item.return_pct),
+    })).filter((item) => Number.isFinite(item.value));
+  }
+  function returnDistributionSvg(data) {
+    const observations = returnDistributionObservations(data);
+    if (!observations.length) return "<div class='empty'>No finite period returns are available for this frequency.</div>";
+    observations.sort((left, right) => left.value - right.value || String(left.period).localeCompare(String(right.period)));
+    const width = ddChartWidth(), height = 380, left = width < 500 ? 58 : 82, right = width < 500 ? 16 : 34, top = 34, bottom = 66;
+    const plotRight = width - right, plotBottom = height - bottom, plotWidth = plotRight - left, plotHeight = plotBottom - top;
+    let lower = Math.min(0, ...observations.map((item) => item.value));
+    let upper = Math.max(0, ...observations.map((item) => item.value));
+    if (lower === upper) { lower -= .5; upper += .5; }
+    let yTicks = niceTicks(lower, upper, 5);
+    lower = yTicks[0] ?? lower;
+    upper = yTicks[yTicks.length - 1] ?? upper;
+    yTicks = niceTicks(lower, upper, 5);
+    lower = yTicks[0] ?? lower;
+    upper = yTicks[yTicks.length - 1] ?? upper;
+    const yFor = (value) => plotBottom - (Number(value) - lower) / (upper - lower || 1) * plotHeight;
+    const xForRank = (rank) => left + (rank - .5) / observations.length * plotWidth;
+    const rankTicks = niceTicks(1, observations.length, 5, true).filter((value) => value >= 1 && value <= observations.length);
+    if (!rankTicks.includes(1)) rankTicks.unshift(1);
+    if (!rankTicks.includes(observations.length)) rankTicks.push(observations.length);
+    const baselineY = yFor(0);
+    const stats = data.stats || {};
+    const markerSpecs = [["P5", stats.p5, 5], ["Median", stats.median, 50], ["P95", stats.p95, 95]];
+    const svg = [`<svg class='return-chart' viewBox='0 0 ${width} ${height}' role='img' aria-label='${esc(returnFrequencyLabel(data.frequency))} period return distribution ranked from lowest to highest'><rect x='0' y='0' width='${width}' height='${height}' fill='#ffffff'/>`];
+    yTicks.forEach((value) => {
+      const y = yFor(value);
+      svg.push(`<line class='grid' x1='${left}' x2='${plotRight}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/><text x='${left - 10}' y='${(y + 4).toFixed(2)}' text-anchor='end'>${esc(returnAxisLabel(value))}</text>`);
+    });
+    rankTicks.forEach((value) => {
+      const x = xForRank(value);
+      svg.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${plotBottom}'/><text x='${x.toFixed(2)}' y='${plotBottom + 18}' text-anchor='middle'>${esc(Math.round(value).toLocaleString())}</text>`);
+    });
+    svg.push(`<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${plotBottom}'/><line class='axis' x1='${left}' x2='${plotRight}' y1='${plotBottom}' y2='${plotBottom}'/>`);
+    if (baselineY > top && baselineY < plotBottom) svg.push(`<line class='zero-line' x1='${left}' x2='${plotRight}' y1='${baselineY.toFixed(2)}' y2='${baselineY.toFixed(2)}'><title>Zero return</title></line>`);
+    const slotWidth = plotWidth / observations.length;
+    const barWidth = Math.max(.7, Math.min(18, slotWidth * .84));
+    observations.forEach((item, index) => {
+      const rank = index + 1;
+      const x = xForRank(rank);
+      const valueY = yFor(item.value);
+      const y = Math.min(baselineY, valueY);
+      const barHeight = Math.max(.8, Math.abs(baselineY - valueY));
+      const barClass = item.value > 0 ? "bar-positive" : item.value < 0 ? "bar-negative" : "bar-zero";
+      const observedNote = item.has_curve_observation ? "curve observation in period" : "no curve observation; value carried forward";
+      const tooltip = `${item.label || item.period} · sorted rank ${rank} · return ${returnAxisLabel(item.value)} · ${observedNote}`;
+      svg.push(`<rect class='${barClass}' x='${(x - barWidth / 2).toFixed(2)}' y='${y.toFixed(2)}' width='${barWidth.toFixed(2)}' height='${barHeight.toFixed(2)}' rx='${Math.min(2, barWidth / 4).toFixed(2)}'><title>${esc(tooltip)}</title></rect>`);
+    });
+    markerSpecs.forEach(([label, rawValue, percentile], index) => {
+      const value = Number(rawValue);
+      if (!Number.isFinite(value)) return;
+      const rank = 1 + (observations.length - 1) * percentile / 100;
+      const x = xForRank(rank);
+      const labelY = top + 13 + (index === 1 ? 13 : 0);
+      svg.push(`<line class='percentile-line' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${plotBottom}'><title>${esc(`${label}: ${returnAxisLabel(value)}`)}</title></line><text class='percentile-label' x='${x.toFixed(2)}' y='${labelY}' text-anchor='middle'>${esc(label)} ${esc(returnAxisLabel(value))}</text>`);
+    });
+    svg.push(`<text x='${left + plotWidth / 2}' y='${height - 12}' text-anchor='middle'>Observation rank, sorted by return (1–${esc(String(data.observation_count || observations.length))})</text><text x='${left / 2}' y='${top + plotHeight / 2}' text-anchor='middle' transform='rotate(-90 ${left / 2} ${top + plotHeight / 2})'>Period return (%)</text></svg>`);
+    return svg.join("");
+  }
+  function returnHistogramSvg(data) {
+    const observations = returnDistributionObservations(data);
+    if (!observations.length) return "<div class='empty'>No finite period returns are available for this frequency.</div>";
+    const values = observations.map((item) => item.value);
+    const binCount = Math.min(12, Math.max(1, observations.length));
+    let lower = Math.min(...values);
+    let upper = Math.max(...values);
+    if (lower === upper) {
+      const padding = Math.max(Math.abs(lower) * .05, .5);
+      lower -= padding;
+      upper += padding;
+    }
+    let xTicks = niceTicks(lower, upper, 5);
+    lower = xTicks[0] ?? lower;
+    upper = xTicks[xTicks.length - 1] ?? upper;
+    xTicks = niceTicks(lower, upper, 5);
+    lower = xTicks[0] ?? lower;
+    upper = xTicks[xTicks.length - 1] ?? upper;
+    const width = ddChartWidth(), height = 380, left = width < 500 ? 58 : 82, right = width < 500 ? 16 : 34, top = 34, bottom = 66;
+    const plotRight = width - right, plotBottom = height - bottom, plotWidth = plotRight - left, plotHeight = plotBottom - top;
+    const xFor = (value) => left + (Number(value) - lower) / (upper - lower || 1) * plotWidth;
+    const bins = Array.from({length: binCount}, (_, index) => {
+      const binLower = lower + (upper - lower) * index / binCount;
+      const binUpper = index === binCount - 1 ? upper : lower + (upper - lower) * (index + 1) / binCount;
+      return {lower: binLower, upper: binUpper, count: 0};
+    });
+    values.forEach((value) => {
+      const index = Math.min(binCount - 1, Math.max(0, Math.floor((value - lower) / (upper - lower || 1) * binCount)));
+      bins[index].count += 1;
+    });
+    const maxCount = Math.max(1, ...bins.map((bin) => bin.count));
+    const yTicks = niceTicks(0, maxCount, 5, true);
+    const yUpper = yTicks[yTicks.length - 1] ?? maxCount;
+    const yForCount = (value) => plotBottom - Number(value) / (yUpper || 1) * plotHeight;
+    const stats = data.stats || {};
+    const markerSpecs = [["P5", stats.p5, 5], ["Median", stats.median, 50], ["P95", stats.p95, 95]];
+    const svg = [`<svg class='return-chart return-histogram' viewBox='0 0 ${width} ${height}' role='img' aria-label='${esc(returnFrequencyLabel(data.frequency))} period return histogram with ${binCount} bins'><rect x='0' y='0' width='${width}' height='${height}' fill='#ffffff'/>`];
+    xTicks.forEach((value) => {
+      const x = xFor(value);
+      svg.push(`<line class='grid' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${plotBottom}'/><text x='${x.toFixed(2)}' y='${plotBottom + 18}' text-anchor='middle'>${esc(returnAxisLabel(value))}</text>`);
+    });
+    yTicks.forEach((value) => {
+      const y = yForCount(value);
+      svg.push(`<line class='grid' x1='${left}' x2='${plotRight}' y1='${y.toFixed(2)}' y2='${y.toFixed(2)}'/><text x='${left - 10}' y='${(y + 4).toFixed(2)}' text-anchor='end'>${esc(ddAxisLabel(value, "count"))}</text>`);
+    });
+    svg.push(`<line class='axis' x1='${left}' x2='${left}' y1='${top}' y2='${plotBottom}'/><line class='axis' x1='${left}' x2='${plotRight}' y1='${plotBottom}' y2='${plotBottom}'/>`);
+    if (lower < 0 && upper > 0) {
+      const zeroX = xFor(0);
+      svg.push(`<line class='zero-line' x1='${zeroX.toFixed(2)}' x2='${zeroX.toFixed(2)}' y1='${top}' y2='${plotBottom}'><title>Zero return</title></line>`);
+    }
+    const binPixelWidth = plotWidth / binCount;
+    const barGap = Math.min(2, Math.max(.5, binPixelWidth * .04));
+    bins.forEach((bin, index) => {
+      const x1 = xFor(bin.lower) + barGap / 2;
+      const x2 = xFor(bin.upper) - barGap / 2;
+      const y = yForCount(bin.count);
+      const midpoint = (bin.lower + bin.upper) / 2;
+      const barClass = midpoint > 0 ? "hist-positive" : midpoint < 0 ? "hist-negative" : "hist-zero";
+      const closingBracket = index === bins.length - 1 ? "]" : ")";
+      const tooltip = `${returnAxisLabel(bin.lower)} to ${returnAxisLabel(bin.upper)}${closingBracket} · ${bin.count} ${bin.count === 1 ? "period" : "periods"}`;
+      svg.push(`<rect class='${barClass}' x='${x1.toFixed(2)}' y='${y.toFixed(2)}' width='${Math.max(.5, x2 - x1).toFixed(2)}' height='${Math.max(0.8, plotBottom - y).toFixed(2)}'><title>${esc(tooltip)}</title></rect>`);
+    });
+    markerSpecs.forEach(([label, rawValue, percentile], index) => {
+      const value = Number(rawValue);
+      if (!Number.isFinite(value)) return;
+      const plottedValue = Math.min(upper, Math.max(lower, value));
+      const x = xFor(plottedValue);
+      const labelY = top + 13 + (index === 1 ? 13 : 0);
+      svg.push(`<line class='percentile-line' x1='${x.toFixed(2)}' x2='${x.toFixed(2)}' y1='${top}' y2='${plotBottom}'><title>${esc(`${label}: ${returnAxisLabel(value)}`)}</title></line><text class='percentile-label' x='${x.toFixed(2)}' y='${labelY}' text-anchor='middle'>${esc(label)} ${esc(returnAxisLabel(value))}</text>`);
+    });
+    svg.push(`<text x='${left + plotWidth / 2}' y='${height - 12}' text-anchor='middle'>Period return (%)</text><text x='${left / 2}' y='${top + plotHeight / 2}' text-anchor='middle' transform='rotate(-90 ${left / 2} ${top + plotHeight / 2})'>Periods (count)</text></svg>`);
+    return svg.join("");
+  }
+  function renderReturnDistributions() {
+    const panel = $("returnDistributionPanel");
+    const data = returnDistributionData();
+    const frequency = ["monthly", "weekly", "daily"].includes(state.returnFrequency) ? state.returnFrequency : "monthly";
+    $("returnFrequency").value = frequency;
+    if (!data || !data[frequency]) {
+      panel.innerHTML = "<div class='notice muted'>Return distributions are unavailable for the selected view.</div>";
+      return;
+    }
+    const distribution = data[frequency];
+    const stats = distribution.stats || {};
+    const frequencyLabel = returnFrequencyLabel(frequency);
+    const selectedLabel = currentMember() ? `${displayName()} · allocated member curve` : `${displayName()} · selected primary curve`;
+    const statSpecs = [["P5", stats.p5, "emphasis"], ["Median", stats.median, "emphasis"], ["P95", stats.p95, "emphasis"], ["Mean", stats.mean, ""], ["Minimum", stats.minimum, ""], ["Maximum", stats.maximum, ""]];
+    const cards = statSpecs.map(([label, value, className]) => `<div class='return-stat ${className}'><div class='label'>${esc(label)}</div><div class='value'>${esc(returnAxisLabel(value))}</div></div>`).join("");
+    const count = Number(distribution.observation_count || 0);
+    const finiteCount = Number(stats.count || 0);
+    const positiveText = `${fmt(stats.positive_count, "integer")} (${fmt(stats.positive_pct, "pct")})`;
+    const negativeText = `${fmt(stats.negative_count, "integer")} (${fmt(stats.negative_pct, "pct")})`;
+    const zeroText = `${fmt(stats.zero_count, "integer")} (${fmt(stats.zero_pct, "pct")})`;
+    const rows = [["Observations (N)", fmt(count, "integer")], ["Finite returns", fmt(finiteCount, "integer")], ["Positive periods", positiveText], ["Negative periods", negativeText], ["Zero-return periods", zeroText], ["Standard deviation", returnAxisLabel(stats.stddev)]];
+    const warning = (distribution.warnings || []).find((item) => item.code === "return_distribution_low_observations");
+    const warningMarkup = warning ? `<div class='notice' style='margin-bottom:1rem'>${esc(warning.message)} (${esc(String(count))} periods in this view)</div>` : "";
+    panel.innerHTML = `<div class='panel return-subview'><div class='dd-basis-label'>${esc(selectedLabel)} · ${esc(frequencyLabel)} returns</div><div class='return-summary-grid'>${cards}</div><p class='small return-caption'>${esc(distribution.curve_source || "")} · ${esc(distribution.curve_basis || "")} · ${esc(String(count))} calendar periods; first and last partial periods are labelled. Returns use simple percentage change from the carried-forward prior period value. Vertical red dotted lines mark P5, median, and P95. The ranked view has one bar per period, sorted ascending by return; the companion histogram uses 12 equal-width bins.</p>${warningMarkup}<div class='panel chart-panel'><h3>Ranked period returns</h3><div class='return-chart-wrap'>${returnDistributionSvg(distribution)}</div></div><div class='panel chart-panel'><h3>Return histogram</h3><div class='small'>Twelve equal-width bins show the number of periods in each return range. The x-axis is return percentage and the y-axis is an integer period count. Vertical red dotted lines mark P5, median, and P95.</div><div class='return-chart-wrap'>${returnHistogramSvg(distribution)}</div></div><div class='panel return-table'><h3>${esc(frequencyLabel)} summary</h3><div class='return-summary-wrap'><table class='data-table return-summary-table'><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>${rows.map(([label, value]) => `<tr><th>${esc(label)}</th><td>${esc(value)}</td></tr>`).join("")}</tbody></table></div></div></div>`;
   }
   function matrixTable(matrix) {
     if (!matrix || !matrix.row_labels?.length) return "<div class='empty'>No correlation observations are available.</div>";
@@ -1849,7 +2187,7 @@ p { color: var(--muted); }
     selectTab(nextTab);
     document.querySelector(`[data-tab="${nextTab}"]`)?.focus();
   }
-  function rerender() { renderTabs(); renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderDrawdown(); renderBars(); renderMonthly(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
+  function rerender() { renderTabs(); renderToolbar(); renderMetrics(); renderMonteCarlo(); renderEquity(); renderDrawdown(); renderBars(); renderLosses(); renderMonthly(); renderReturnDistributions(); renderCorrelation(); renderWarnings(); renderTrades(); updateHash(); }
   function download(name, content, type) { const blob = content instanceof Blob ? content : new Blob([content], {type}); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
   function downloadDataUrl(name, dataUrl) { const link = document.createElement("a"); link.href = dataUrl; link.download = name; link.click(); }
   function csvValue(value) { const text = value == null ? "" : String(value); return `"${text.replace(/"/g, '""')}"`; }
@@ -1876,7 +2214,7 @@ p { color: var(--muted); }
     window.addEventListener("hashchange", () => { readHash(); rerender(); window.scrollTo(0, 0); });
     $("dataSelect").addEventListener("change", (event) => { state.data = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
     $("directionSelect").addEventListener("change", (event) => { state.direction = event.target.value; state.page = 1; state.hiddenCurves = {}; rerender(); });
-    $("resetButton").addEventListener("click", () => { state.direction = "all"; state.data = report.default_data; state.curve = "primary"; state.valueMode = "percent"; state.drawdownMode = "percent"; state.showMembers = report.kind === "portfolio"; state.showPeriods = true; state.windowStart = 0; state.windowEnd = 1; state.page = 1; state.search = ""; $("tradeSearch").value = ""; rerender(); });
+    $("resetButton").addEventListener("click", () => { state.direction = "all"; state.data = report.default_data; state.curve = "primary"; state.valueMode = "percent"; state.drawdownMode = "percent"; state.returnFrequency = "monthly"; state.showMembers = report.kind === "portfolio"; state.showPeriods = true; state.windowStart = 0; state.windowEnd = 1; state.page = 1; state.search = ""; $("tradeSearch").value = ""; rerender(); });
     $("valueMode").addEventListener("click", () => { state.valueMode = state.valueMode === "percent" ? "money" : "percent"; state.drawdownMode = state.valueMode; renderEquity(); updateHash(); });
     $("memberToggle").addEventListener("change", (event) => {
       state.showMembers = event.target.checked;
@@ -1895,6 +2233,7 @@ p { color: var(--muted); }
     $("tradeMeasure").addEventListener("change", (event) => { state.measure = event.target.value; renderBars(); });
     $("correlationFrequency").addEventListener("change", (event) => { state.correlationFrequency = event.target.value; renderCorrelation(); updateHash(); });
     $("correlationMode").addEventListener("change", (event) => { state.correlationMode = event.target.value; renderCorrelation(); });
+    $("returnFrequency").addEventListener("change", (event) => { state.returnFrequency = event.target.value; renderReturnDistributions(); updateHash(); });
     $("tradeSearch").addEventListener("input", (event) => { state.search = event.target.value; state.page = 1; renderTrades(); });
     $("tradeSort").addEventListener("change", (event) => { state.sort = event.target.value; renderTrades(); });
     $("downloadMonteCarlo").addEventListener("click", downloadMonteCarlo);

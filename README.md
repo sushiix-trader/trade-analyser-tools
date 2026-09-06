@@ -34,7 +34,9 @@ of the same reproducible analysis results.
 - **“What does the portfolio of three strategies look like?”**
 - **“What are the 95% Monte Carlo estimates of returns?”**
 - **“What are the monthly returns and monthly drawdowns?”**
+- **“What do the daily, weekly, or monthly return distributions look like?”**
 - **“What do the historical drawdown depth and duration distributions look like, and is the current drawdown unusual?”**
+- **“How clustered are the losing trades, and what does loss-only equity look like over time?”**
 - **“What are the profit factor, recovery factor, Calmar ratio, and Sharpe?”**
 - **“What if every trade risks 1% of a $100,000 account?”**
 - **“How correlated are the strategies’ daily or weekly profits?”**
@@ -107,18 +109,23 @@ When a strategy or portfolio is analysed without a more specific output format,
 the preferred user-facing result is one **complete** self-contained interactive
 HTML report. The standard workflow includes the metrics, filters,
 equity/drawdown chart, deterministic drawdown depth × duration analysis tab,
-monthly tables, trade analysis, a portfolio correlation table with a daily/weekly
-frequency selector where applicable, and deterministic Monte Carlo robustness
-results. Use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` for the reproducible default
-(10,000 permutation iterations, seed 42, and 500 retained paths). The section
-navigation is implemented as true in-page tabs: only the selected panel is shown,
-while all views remain in one self-contained HTML file. The selected tab is kept in
-the URL fragment for reloads and shareable view links. The Monte Carlo tab appears
-near the end of the report, immediately before the final Warnings & provenance tab,
-with distribution summaries and retained-path bands. The report can be opened
-directly in a browser without Python. The low-level renderer remains able to
-render without a simulation when a caller explicitly opts out; it then displays a
-request-to-regenerate message rather than silently running Monte Carlo.
+monthly tables, a ranked daily/weekly/monthly return-distributions tab with
+frequency selection and P5/median/P95 markers, trade analysis, a **Losses** tab
+(loss-only equity vs close time with a constant loss-rate reference, plus an
+equal-width day histogram of close→close gaps), and a portfolio correlation
+table with a daily/weekly frequency selector where applicable.
+Monte Carlo robustness is an optional add-on because it can add substantial
+generation time. Ask the user whether it is required before starting a general
+report request; when they opt in, use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` for the
+reproducible default (10,000 permutation iterations, seed 42, and 500 retained
+paths). The section navigation is implemented as true in-page tabs: only the
+selected panel is shown, while all views remain in one self-contained HTML file.
+The selected tab is kept in the URL fragment for reloads and shareable view links.
+The Monte Carlo tab always appears near the end of the report, immediately
+before the final Warnings & provenance tab; it contains robustness results only
+when opted in. The report can be opened directly in a browser
+without Python; when Monte Carlo is not opted in, its tab displays a
+request-to-regenerate message rather than silently starting a simulation.
 
 - [Example equal-weight portfolio report](results/interactive-portfolio-report.html)
 - [Example single-strategy report](results/interactive-report.html)
@@ -140,6 +147,9 @@ Text and table examples:
 - [Rounded JSON result](results/analysis.json)
 - [Monthly returns](results/monthly.csv)
 - [Monthly drawdown](results/monthly-drawdown.csv)
+- Return distributions are available as typed monthly, weekly, and daily API
+  data and in the interactive report's **Return distributions** tab; they are
+  intentionally not emitted as a separate download section.
 - [Drawdown depth × duration summary](results/drawdown-summary.csv)
 - [Drawdown depth × duration episodes](results/drawdown-episodes.csv)
 - [Year × Jan-Dec × compounded YTD performance](results/monthly-performance.csv)
@@ -187,6 +197,44 @@ Example output:
 | 2023 | 0.05% | -0.23% | 0.04% | -0.06% | 0.15% | 0.32% | 0.01% | 0.13% | -0.03% | 0.25% | -0.03% | 0.24% | 0.85% |
 | 2024 | 0.15% | 0.09% | 0.06% | -0.09% | — | — | — | — | — | — | — | — | 0.21% |
 ```
+
+### Example: ranked period return distributions
+
+Every eager result exposes the same return distributions used by the interactive
+report. They are calculated from the selected primary timestamped account curve
+using simple period-over-period percentage returns. The first period begins at
+the curve's initial value; missing calendar periods are retained as zero-return
+observations, and partial first/last periods are labelled for review.
+
+```python
+from analyser import AnalysisConfig, analyze_file
+
+result = analyze_file("tester_report.htm", AnalysisConfig())
+
+for frequency in ("monthly", "weekly", "daily"):
+    distribution = result.return_distributions.get(frequency)
+    print(
+        frequency,
+        "N=", distribution.observation_count,
+        "P5=", distribution.stats.p5,
+        "median=", distribution.stats.median,
+        "P95=", distribution.stats.p95,
+    )
+
+# Chronological observations retain period metadata and audit flags.
+for observation in result.return_distributions.monthly.observations:
+    print(observation.label, observation.return_pct, observation.partial)
+```
+
+The report tab plots one bar for each finite calendar-period observation, sorted
+from the lowest return to the highest. The vertical red dotted lines mark P5,
+median, and P95; the x-axis is an integer observation rank and the y-axis is a
+return percentage. A companion histogram uses 12 equal-width bins, with return
+percentage on the x-axis and an integer period count on the y-axis. The same tab
+works for a portfolio: the default view uses the allocated aggregate portfolio
+curve, while a selected member uses that
+member's allocated curve. Small samples are retained but emit a typed warning
+when fewer than 30 finite observations are available.
 
 ### Visual examples (sanitized/synthetic fixtures)
 
@@ -283,8 +331,10 @@ Both commands should return JSON containing `"ok":true`.
 ### 5. Create analyser outputs
 
 Use the canonical analyser API first. Do not recalculate metrics in the Telegram
-transport layer. For a complete report, include the eager drawdown analysis and
-run the shared deterministic Monte Carlo configuration before rendering:
+transport layer. Ask whether Monte Carlo is required before generating a general
+report. If the user opts in, include the eager drawdown analysis and run the
+shared deterministic Monte Carlo configuration before rendering; otherwise pass
+`monte_carlo=None` and let the report display its regeneration guidance:
 
 ```python
 from analyser import (
@@ -297,6 +347,7 @@ from analyser import (
 )
 
 result = analyze_file("tester_report.htm", AnalysisConfig())
+# This is the opt-in branch after the user confirms Monte Carlo is required.
 simulation = run_monte_carlo(result.report, DEFAULT_REPORT_MONTE_CARLO_CONFIG)
 save_interactive_report(
     result,

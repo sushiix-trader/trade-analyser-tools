@@ -31,6 +31,10 @@ print(result.metrics.annualized_daily_sharpe_ratio)
 print(result.drawdown_analysis.depth_distribution.p95)
 print(result.drawdown_analysis.duration_distribution.p95)
 
+for frequency in ("monthly", "weekly", "daily"):
+    distribution = result.return_distributions.get(frequency)
+    print(frequency, distribution.stats.p5, distribution.stats.median, distribution.stats.p95)
+
 for month in result.monthly:
     print(month.period, month.pnl, month.return_on_starting_equity)
 
@@ -46,8 +50,9 @@ pointers are rejected explicitly.
 
 Every analysis is eager and deterministic. Values can be retrieved later from
 `result.metrics`, `result.monthly`, `result.monthly_drawdown`,
-`result.monthly_performance`, `result.drawdown_analysis`, `result.balance`,
-`result.equity`, `result.warnings`, and `result.provenance`.
+`result.monthly_performance`, `result.drawdown_analysis`,
+`result.return_distributions`, `result.balance`, `result.equity`,
+`result.warnings`, and `result.provenance`.
 
 ## Limitations and assumptions
 
@@ -62,12 +67,6 @@ Every analysis is eager and deterministic. Values can be retrieved later from
 - External cash flows are not modeled. The source balance/equity is preserved,
   while the reconstructed curve is calculated from the canonical completed
   positions.
-- Drawdown and the primary report curve are **balance-based** for typical MT5
-  Strategy Tester HTML exports: deal-table balance points and/or the
-  reconstructed closed-position balance path. Floating **equity** drawdown is
-  used only when the report supplies a complete `source_equity` series; most
-  HTML dumps do not. MT5 header equity-DD summary fields are not a substitute
-  equity curve.
 - M1/OHLC data is not currently an input source. R-expectancy and bars-per-trade
   metrics remain undefined unless the report supplies explicit R/bar values.
 
@@ -97,6 +96,10 @@ and stops are required.
   does not simulate future tick paths, market microstructure, or execution
   latency. The standard portfolio report permutes the allocated aggregate
   completed-position stream; it is not a joint member-level market simulation.
+- Return distributions are simple percentage changes between successive
+  calendar-period curve endpoints. They are curve-based rather than trade-level
+  aggregates; missing periods are carried forward as zero-return observations,
+  and the first/last calendar periods can be partial.
 - Analysis is eager and in-memory by design. Very large reports can require
   substantial memory; multiprocessing and live execution are out of scope.
 
@@ -114,16 +117,19 @@ size limit, and add malicious-XML regression tests.
 
 The standard report workflow turns one MT5 HTML/XML report into one
 self-contained webpage containing the full analysis: metrics, equity and
-high-water-mark drawdown, drawdown depth × duration, monthly tables, trade
-analysis, and deterministic Monte Carlo robustness. The page is generated from
-the eager typed result, so the browser is a retrieval and presentation layer
-rather than a second metric implementation. Its section navigation behaves as
+high-water-mark drawdown, drawdown depth × duration, monthly tables, ranked
+monthly/weekly/daily return distributions, and trade analysis. Monte Carlo
+robustness is an optional add-on because it can add substantial generation time;
+ask whether it is required before generating a general report. The page is
+generated from the eager typed result, so the browser is a retrieval and
+presentation layer rather than a second metric implementation. Its section
+navigation behaves as
 true in-page tabs: selecting a tab hides the other panels instead of making the
 user flick through one long page, while the complete report remains in the same
 HTML file. The selected tab and other view controls are kept in the URL fragment
-for reloads and shareable links. The Monte Carlo tab appears near the end of the
-report, immediately before the final Warnings & provenance section, with
-percentile summaries and retained simulated paths.
+for reloads and shareable links. The Monte Carlo tab always appears near the end
+of the report, immediately before the final Warnings & provenance section; it
+contains percentile summaries and retained simulated paths only when opted in.
 
 ```python
 from analyser import (
@@ -136,6 +142,7 @@ from analyser import (
 )
 
 # Analyse eagerly; drawdown is calculated as part of this result.
+# This is the opt-in branch after the user confirms Monte Carlo is required.
 result = analyze_file("tester_report.htm", AnalysisConfig())
 simulation = run_monte_carlo(
     result.report,
@@ -164,7 +171,9 @@ report without a simulation: `render_interactive_report(result)` leaves the
 Monte Carlo tab available and displays a request-to-regenerate message. It does
 not silently start an expensive simulation. For a local preview,
 `serve_interactive_report(result, monte_carlo=simulation)` returns immediately
-and binds to localhost; call `server.close()` when finished.
+and binds to localhost; call `server.close()` when finished. If Monte Carlo was
+not opted in, pass `monte_carlo=None`; the tab remains visible and explains how
+to regenerate the report with robustness results.
 
 The default dark-blue page contains:
 
@@ -197,7 +206,15 @@ The default dark-blue page contains:
   red with darker red indicating a larger drawdown, and the table has a
   `Worst` annual column containing the year's most negative monthly value. The
   drawdown table has no YTD column; it fits within the desktop layout and becomes
-  a swipeable table on narrow screens.
+  a swipeable table on narrow screens;
+- a **Return distributions** tab with Monthly, Weekly, and Daily selectors. It
+  renders one sorted bar per finite calendar-period observation, uses integer
+  observation ranks on the x-axis and return percentages on the y-axis, and
+  marks P5, median, and P95 with vertical red dotted lines. A companion 12-bin
+  histogram shows return percentage on the x-axis and integer period counts on
+  the y-axis. The tab also reports finite, positive, negative, and zero-period
+  counts, partial-period labels, and small-sample warnings. Portfolio member
+  views use allocated member curves;
 - an **Edit name** control in the browser. The title is presentation metadata,
   so users can rename the report without changing any analysis. The edited
   name is stored in the URL fragment, survives reloads, is included in JSON
@@ -207,12 +224,14 @@ The default dark-blue page contains:
   validation, provenance, and deterministic CSV/JSON/SVG/PNG exports.
 - a Monte Carlo tab near the end with probability of ruin, P5/median/P95/mean/worst
   distributions for returns, equity, drawdown, and streaks, plus a retained-path
-  percentile chart. The standard complete workflow supplies the deterministic
-  simulation and retained paths; the low-level renderer can be used without it
-  only when the caller deliberately opts out.
+  percentile chart when Monte Carlo is opted in. If it is not requested, the
+  tab remains visible with guidance to regenerate the report with robustness
+  results; the renderer never starts the simulation implicitly.
 
-The Monte Carlo tab describes the all-trades simulation supplied by the caller;
-changing the report's long/short or portfolio-member view does not rerun it.
+The Monte Carlo tab describes the all-trades simulation supplied by the caller
+when one was requested; changing the report's long/short or portfolio-member
+view does not rerun it. Without an opt-in simulation, the tab provides a
+request-to-regenerate message.
 
 Single-report correlation is intentionally shown as “not applicable”. The page
 embeds only canonical normalized analysis data and completed positions. Original
@@ -224,7 +243,8 @@ a server or make network requests; `serve_interactive_report()` is an explicit
 localhost-only convenience for previewing the generated page.
 
 The same result can be rendered repeatedly with byte-for-byte identical HTML
-for the same input and configuration. Use the package cache before rendering
+for the same input and configuration. Monte Carlo is never started implicitly by
+the renderer. Use the package cache before rendering
 when repeated eager analysis retrieval is important:
 
 ```python
@@ -377,12 +397,9 @@ Portfolio curve aggregation replays **every** member observation in
 chronological order (stable by member index, then point index), including
 multiple balance updates that share the same timestamp. Collapsing to unique
 timestamps and keeping only the last value per second would erase intermediate
-peak-to-trough paths and understate portfolio drawdown. Keeping the full event
-path makes **portfolio-level drawdown materially more accurate** relative to
-that older collapse behaviour. Member dollar paths are still capital-weighted;
-percentage drawdowns on each allocated member curve match that member’s
-unscaled percentage path. Portfolio DD remains on the same balance/equity
-basis as the member curves (balance for typical HTML reports).
+peak-to-trough paths and understate portfolio drawdown. Member dollar paths are
+still capital-weighted; percentage drawdowns on each allocated member curve
+match that member’s unscaled percentage path.
 
 ## Build a portfolio
 
@@ -429,12 +446,47 @@ Portfolio results expose:
 - Portfolio-level metrics and curves
 - Per-strategy metrics and allocated curves
 - Monthly return and contribution matrices
+- Portfolio-level monthly, weekly, and daily return distributions; selected
+  members expose their allocated distributions and retain raw distributions in
+  the typed result
 - Daily and weekly profit correlation and covariance
 - Warnings for differing active periods
 
 Reports must use a compatible currency and timezone. Filters, sample periods,
 and what-if sizing belong on each `PortfolioMember` and are applied before
 portfolio allocation.
+
+### Daily, weekly, and monthly return distributions
+
+Return distributions are calculated eagerly from the relevant selected curve:
+`result.return_distributions` for a single report and
+`portfolio.return_distributions` for an allocated portfolio. A selected
+portfolio member's `allocated_return_distributions` is the presentation view;
+`raw_return_distributions` is retained alongside it for auditability.
+
+```python
+for frequency in ("monthly", "weekly", "daily"):
+    distribution = portfolio.return_distributions.get(frequency)
+    print(
+        frequency,
+        distribution.observation_count,
+        distribution.stats.p5,
+        distribution.stats.median,
+        distribution.stats.p95,
+    )
+```
+
+Each distribution keeps chronological observations, ranked observations, the
+calendar-period boundaries, and whether a period had a source curve observation.
+The interactive report plots one bar per finite observation after ascending sort;
+its integer x-axis is the observation rank and its y-axis is the return in
+percent. A companion 12-bin histogram uses return percentage on the x-axis and
+integer period count on the y-axis. The vertical marker lines are descriptive P5,
+median, and P95 statistics, not forecast intervals. Undefined observations remain
+in the typed data but are
+excluded from the statistics and chart. The interactive report intentionally
+has no separate download control for this tab; the same data remains available
+through the normal JSON/typed result serialization.
 
 ### Daily and weekly profit correlation
 
@@ -552,11 +604,12 @@ activated automatically.
 
 ## Monte Carlo estimates
 
-The Monte Carlo API is an optional standalone capability, but it is included by
-default in the complete interactive report workflow unless the user explicitly
-asks to skip it. It operates over completed-position net profits, is separate
-from the primary eager metrics, and is deterministic for a fixed configuration
-and seed.
+The Monte Carlo API is an optional standalone capability and an opt-in add-on
+to the complete interactive report workflow. When a user requests a general
+report without saying whether Monte Carlo is wanted, ask before starting the
+report because the simulation can add substantial generation time. It operates
+over completed-position net profits, is separate from the primary eager metrics,
+and is deterministic for a fixed configuration and seed.
 
 ```python
 from analyser import (
@@ -594,6 +647,46 @@ print(summary["max_consecutive_losses"])
 
 For simulated path charts, retain a bounded set of paths and use
 `save_monte_carlo_paths()` with configurable percentile bands.
+
+## Losing-trade equity and clustering
+
+Loss clustering is computed eagerly on every analysis and portfolio result as
+`result.loss_clustering`. It builds a loss-only balance curve (completed
+positions with `profit < 0` only; break-evens excluded) and close→close
+inter-loss gap statistics.
+
+The interactive **Losses** tab and chart APIs show:
+
+- **Loss-only equity vs close time** — balance steps only on losing closes
+  (winners omitted). X axis is report/close time; Y axis is balance. Both axes
+  use labelled ticks with a full grid.
+- **Constant loss-rate reference** — dashed straight line from the same start
+  balance to the same end balance. It always meets the curve at both endpoints;
+  compare the mid-path shape (front-loaded vs even loss rate over calendar time).
+- **Days-since-previous-loss histogram** — equal-width continuous day bins
+  (default 1 day), not categorical bar labels. X axis is days; Y axis is
+  frequency; grid and axis labels are included.
+
+Summary fields include loss count, total loss money, mean/median/P95 gap days,
+max consecutive losses, loss-only max drawdown, and configurable shares of gaps
+below day thresholds (default 1d and 7d). Long/Short toolbar filters use the
+already view-scoped payload. Use `LosingOnly` when you want a full re-analysis
+restricted to losers rather than only the dedicated clustering payload.
+
+```python
+from analyser import LosingOnly, save_loss_gap_histogram, save_loss_only_equity_chart
+
+print(result.loss_clustering.summary.loss_count)
+print(result.loss_clustering.summary.median_gap_days)
+print(result.loss_clustering.summary.max_consecutive_losses)
+print(result.loss_clustering.summary.share_gaps_below_days)
+
+save_loss_only_equity_chart(result, "loss-only-equity.png")
+save_loss_gap_histogram(result, "loss-gap-histogram.png")
+
+losers = result.apply_filters(LosingOnly())
+```
+
 
 ## Charts, exports, and caching
 

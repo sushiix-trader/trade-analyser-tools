@@ -62,10 +62,11 @@ trade-analyser-gui
    Strategy Tester report (`.htm`, `.html`, or `.xml`).
 2. Choose the output folder. The default suggested by the GUI is an
    `analysis-output` folder beside the selected report.
-3. Leave **Run Monte Carlo** enabled (the default) for the complete report.
-   Uncheck it only when you explicitly want to skip the robustness simulation.
-4. Choose `permutation` or `bootstrap`, set the iteration count and seed, and
-   optionally generate the standalone path chart. The default complete-report
+3. Monte Carlo is optional and is **unchecked by default**. Check **Run Monte
+   Carlo** when robustness results are required; leaving it unchecked keeps the
+   report generation fast and leaves guidance in the report's Monte Carlo tab.
+4. If enabled, choose `permutation` or `bootstrap`, set the iteration count and
+   seed, and optionally generate the standalone path chart. The default opt-in
    settings are permutation, 10,000 iterations, seed 42, and 500 retained paths
    for the interactive HTML visual.
 5. Click **Generate report**. The GUI performs the work off the Tkinter event
@@ -97,8 +98,9 @@ The simulation is run from the already parsed canonical report held by the
 Monte Carlo remains a one-strategy feature in this first GUI slice. Portfolio
 Monte Carlo, skipped-trade stress controls, and ruin-threshold controls remain
 available through the analyser API but are not exposed as GUI inputs yet.
-The framework-free `GuiRunConfig` also uses the complete-report Monte Carlo
-default; pass `monte_carlo=None` explicitly to opt out.
+The framework-free `GuiRunConfig` is also Monte Carlo opt-in: pass a
+`MonteCarloConfig` to run it, or leave `monte_carlo=None` (the default) to omit
+the simulation.
 
 ## Generated outputs
 
@@ -115,10 +117,12 @@ as:
 | `my-strategy-monte-carlo.json` | Full deterministic Monte Carlo serializer |
 | `my-strategy-monte-carlo-paths.png` | Optional simulated paths, intervals, drawdown, and streak panels |
 
-Monte Carlo files are created by default; pass `monte_carlo=None` to the
-framework-free workflow or uncheck the GUI option to explicitly omit them. PNG
-files are created only when the optional chart dependency is available. The
-interactive HTML report uses true in-page tabs in one self-contained file, so
+Monte Carlo files are created only when the simulation is explicitly enabled;
+pass a `MonteCarloConfig` to the framework-free workflow or check the GUI option.
+Leaving it disabled omits the simulation artifacts and shows guidance in the
+HTML tab. PNG files are created only when the optional chart dependency is
+available. The interactive HTML report uses true in-page tabs in one
+self-contained file, so
 selecting a tab shows only that panel rather than scrolling through one long
 page. It always contains a Monte Carlo tab near the end; Warnings & provenance
 remains the final tab. When Monte Carlo is explicitly omitted, the report shows
@@ -126,8 +130,10 @@ clear instructions to run it and regenerate the page.
 
 The interactive HTML report contains the platform's existing report views,
 including metrics, monthly performance, monthly drawdown, equity/drawdown, the
-Drawdown depth × duration analysis, trade analysis, and portfolio correlation
-when a portfolio result is supplied through the analyser API.
+Drawdown depth × duration analysis, return distributions, trade analysis, the
+**Losses** tab (loss-only equity vs close time and inter-loss gap histogram),
+and portfolio correlation when a portfolio result is supplied through the
+analyser API.
 
 ## Framework-free workflow seam
 
@@ -142,7 +148,7 @@ run = run_analysis(
     GuiRunConfig(
         source="reports/my-strategy.html",
         output_dir="analysis-output",
-        # Omit this argument to use the complete-report default.
+        # Omit this argument to leave Monte Carlo out (it is opt-in).
         monte_carlo=MonteCarloConfig(
             iterations=10_000,
             method="permutation",

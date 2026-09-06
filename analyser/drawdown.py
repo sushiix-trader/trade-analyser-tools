@@ -9,6 +9,7 @@ from typing import Protocol, Sequence
 
 from .diagnostics import Diagnostic
 from .serialization import to_primitive
+from .statistics import linear_quantile
 
 
 DRAWDOWN_PERCENTILES = (50.0, 90.0, 95.0, 99.0)
@@ -472,14 +473,7 @@ def _rank(
 
 
 def _quantile(values: Sequence[float], percentile: float) -> float | None:
-    if not values:
-        return None
-    position = (len(values) - 1) * percentile / 100.0
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return float(values[lower])
-    return float(values[lower] + (values[upper] - values[lower]) * (position - lower))
+    return linear_quantile(values, percentile)
 
 
 def _elapsed_days(

@@ -61,6 +61,7 @@ from .trade_profit import (
     build_trade_profit_analysis,
 )
 from .return_distributions import ReturnDistributions, analyze_return_distributions
+from .loss_clustering import LossClusteringResult, build_loss_clustering
 from .what_if import WhatIfConfig
 
 _SUPPORTED_PRIMARY_CURVES = frozenset(("source_then_reconstructed", "source", "reconstructed"))
@@ -309,6 +310,7 @@ class PortfolioAnalysisResult:
     warnings: tuple[Diagnostic, ...]
     provenance: dict[str, Any]
     config: PortfolioConfig
+    loss_clustering: LossClusteringResult | None = None
 
     @property
     def portfolio_metrics(self) -> Metrics:
@@ -724,6 +726,14 @@ class PortfolioAnalysisResult:
             warnings=tuple(Diagnostic(**item) for item in payload.get("warnings", [])),
             provenance=payload.get("provenance", {}),
             config=config,
+            loss_clustering=(
+                LossClusteringResult.from_dict(payload["loss_clustering"])
+                if payload.get("loss_clustering") is not None
+                else build_loss_clustering(
+                    _report_from_dict(payload["portfolio_report"]),
+                    initial_capital=float(payload["portfolio_initial_capital"]),
+                )
+            ),
         )
 
 
@@ -1351,6 +1361,11 @@ def combine_analyses(
     metric_diagnostics = list(diagnostics)
     metric_diagnostics.extend(portfolio_drawdown_analysis.warnings)
     metric_diagnostics.extend(trade_profit.warnings)
+    loss_clustering = build_loss_clustering(
+        portfolio_report,
+        initial_capital=portfolio_capital,
+    )
+    metric_diagnostics.extend(loss_clustering.warnings)
     metrics = compute_metrics(
         portfolio_report,
         primary_curve=CurveSeries(
@@ -1583,4 +1598,5 @@ def combine_analyses(
         warnings=tuple(metric_diagnostics),
         provenance=provenance,
         config=config,
+        loss_clustering=loss_clustering,
     )

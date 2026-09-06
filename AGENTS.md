@@ -25,19 +25,24 @@ When a user asks to analyse a strategy or portfolio without requesting a
 specific narrower output, produce the **complete** self-contained interactive
 HTML report as the primary deliverable. The complete report includes the eager
 metrics, equity and high-water-mark drawdown, drawdown depth × duration
-episodes, monthly tables, trade analysis, portfolio daily/weekly correlation
-where applicable, and deterministic Monte Carlo robustness results. For one
-report, analyze eagerly with `analyze_file()`, run Monte Carlo on the final
-`result.report`, and pass both to `save_interactive_report()`; for a portfolio,
-build it with `analyze_portfolio()`, run Monte Carlo on
-`portfolio.portfolio_report`, and render both with `save_interactive_report()`.
-Use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` (10,000 permutation iterations, seed
-42, and 500 retained paths) unless the user explicitly chooses another
-configuration or asks to skip Monte Carlo. Do not replace this with a custom
-HTML, chart, metric, or randomisation script. Return the report path/link along
-with a concise summary of the main metrics, historical drawdown, Monte Carlo
-percentiles/configuration, and warnings. Use raw typed fields, serializers, or
-standalone chart APIs when the user explicitly asks for those formats instead.
+episodes, monthly tables, trade analysis, losing-trade equity/clustering
+(**Losses** tab), and portfolio daily/weekly correlation
+where applicable. Monte Carlo robustness is an optional add-on, not part of the
+default run, because it can add substantial generation time. If the user asks
+for a report without explicitly saying whether Monte Carlo is wanted, ask before
+starting analysis: **“Should I include Monte Carlo robustness? It is optional
+and can add several minutes to report generation.”** Do not analyze or render
+the requested report until that choice is answered. If the user opts in (or
+already explicitly requests Monte Carlo), run it after all requested filters,
+sample periods, sizing, and portfolio allocation; use
+`DEFAULT_REPORT_MONTE_CARLO_CONFIG` unless another configuration is requested.
+If the user opts out, pass `monte_carlo=None`; the report still contains the
+Monte Carlo tab with guidance to regenerate it later. Do not replace this with a
+custom HTML, chart, metric, or randomisation script. Return the report path/link
+along with a concise summary of the main metrics, historical drawdown, and
+warnings; include Monte Carlo percentiles/configuration only when it was run.
+Use raw typed fields, serializers, or standalone chart APIs when the user
+explicitly asks for those formats instead.
 
 ### Standard path
 
@@ -64,6 +69,9 @@ be separate. Retrieve calculated values from `AnalysisResult`:
 - `result.what_if` when a deterministic trade re-sizing mode is enabled
 - `result.periods["in_sample"]` and `result.periods["out_of_sample"]` when an explicit `SamplePeriodConfig` is enabled
 - `result.daily_profit` for normalized realized daily net-profit points
+- `result.loss_clustering` for loss-only equity vs close time, inter-loss gap
+  histogram/summary, consecutive-loss streaks, and loss-only drawdown
+
 
 Use `compare_reports(left, right)` for XML/HTML canonical equivalence. Use the
 serializers on `AnalysisResult` for JSON, CSV, or Markdown output. For a
@@ -203,8 +211,12 @@ retrieval. Filter specifications/configuration and the source report hash are
 part of the cache key.
 
 For Monte Carlo robustness work, use the public simulation API rather than a
-custom randomisation script. It is part of the complete report workflow unless
-the user explicitly asks to skip it:
+custom randomisation script. Monte Carlo is opt-in. When a user requests a
+general report but has not stated whether to include it, ask before starting
+the expensive simulation (and before generating the final report). If the user
+opts in, use the shared default below unless another configuration is requested;
+if the user opts out, do not call the simulation API and pass
+`monte_carlo=None` to the renderer:
 
 ```python
 from analyser import (

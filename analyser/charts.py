@@ -1294,3 +1294,241 @@ def save_correlation_heatmap(
         )
     )
     return path
+
+
+def _loss_clustering_from(result: Any):
+    """Resolve an eager loss-clustering payload from an analysis result."""
+
+    from .loss_clustering import LossClusteringResult, build_loss_clustering
+
+    clustering = getattr(result, "loss_clustering", None)
+    if isinstance(clustering, LossClusteringResult):
+        return clustering
+    report = getattr(result, "portfolio_report", None) or getattr(result, "report", None)
+    if report is None:
+        raise ValueError("result does not contain a report for loss clustering")
+    capital = getattr(result, "portfolio_initial_capital", None)
+    if capital is None:
+        capital = report.initial_deposit
+    return build_loss_clustering(report, initial_capital=float(capital))
+
+
+def render_loss_only_equity_chart(
+    result: Any,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+) -> bytes:
+    """Render loss-only equity vs close time with a linear reference.
+
+    The X axis is report time (baseline plus each losing close).  A dashed
+    linear start→end line shows constant loss rate over calendar time for
+    comparison against the realised path.
+    """
+
+    if image_format.lower() not in {"png", "svg"}:
+        raise ValueError("image_format must be 'png' or 'svg'")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+
+    clustering = _loss_clustering_from(result)
+    curve = clustering.curve
+    strategy_name, currency = _report_metadata(result)
+    matplotlib, mdates, plt = _matplotlib()
+    values = list(curve.values)
+    timestamps = list(curve.timestamps)
+
+    with matplotlib.rc_context(
+        {
+            "figure.dpi": dpi,
+            "savefig.dpi": dpi,
+            "font.family": "DejaVu Sans",
+            "axes.grid": True,
+            "grid.alpha": 0.25,
+        }
+    ):
+        fig, axis = plt.subplots(figsize=(12, 5.5), constrained_layout=True)
+        fig.suptitle(
+            title or f"{strategy_name} — Loss-only equity",
+            fontsize=14,
+            fontweight="bold",
+        )
+        if len(values) >= 2 and len(timestamps) == len(values):
+            axis.plot(
+                timestamps,
+                values,
+                color="#c62828",
+                linewidth=1.35,
+                label=f"Loss-only balance ({curve.source})",
+            )
+            axis.plot(
+                [timestamps[0], timestamps[-1]],
+                [values[0], values[-1]],
+                color="#6b7280",
+                linewidth=1.15,
+                linestyle="--",
+                label="Linear loss (constant rate over time)",
+            )
+            axis.xaxis.set_major_locator(mdates.AutoDateLocator())
+            axis.xaxis.set_major_formatter(
+                mdates.ConciseDateFormatter(axis.xaxis.get_major_locator())
+            )
+        elif values:
+            axis.axhline(
+                values[0],
+                color="#c62828",
+                linewidth=1.35,
+                label="Initial capital (no losses)",
+            )
+        axis.set_ylabel(f"Balance ({currency})")
+        axis.set_xlabel("Report time")
+        summary = clustering.summary
+        dd_money = summary.loss_only_max_drawdown_money
+        dd_pct = summary.loss_only_max_drawdown_pct
+        dd_label = "N/A"
+        if dd_money is not None and dd_pct is not None:
+            dd_label = f"{dd_money:,.2f} {currency} ({dd_pct:.2f}%)"
+        elif dd_money is not None:
+            dd_label = f"{dd_money:,.2f} {currency}"
+        axis.set_title(
+            f"Losses only · count {summary.loss_count} · max DD {dd_label}",
+            loc="left",
+            fontsize=10,
+        )
+        axis.legend(loc="upper right", frameon=False)
+        output = io.BytesIO()
+        save_kwargs = {"format": image_format.lower(), "dpi": dpi}
+        if image_format.lower() == "png":
+            save_kwargs["metadata"] = {"Software": "trade-analyser-tools"}
+        fig.savefig(output, **save_kwargs)
+        plt.close(fig)
+    return output.getvalue()
+
+
+def save_loss_only_equity_chart(
+    result: Any,
+    destination: str | Path,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+) -> Path:
+    """Render and save a loss-only equity chart, returning its path."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        render_loss_only_equity_chart(
+            result,
+            title=title,
+            image_format=image_format,
+            dpi=dpi,
+        )
+    )
+    return path
+
+
+def render_loss_gap_histogram(
+    result: Any,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+) -> bytes:
+    """Render a continuous equal-width histogram of days since the previous loss."""
+
+    if image_format.lower() not in {"png", "svg"}:
+        raise ValueError("image_format must be 'png' or 'svg'")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+
+    clustering = _loss_clustering_from(result)
+    strategy_name, _currency = _report_metadata(result)
+    matplotlib, _, plt = _matplotlib()
+    gaps = [point.gap_days for point in clustering.gap_points]
+    histogram = clustering.gap_histogram
+
+    with matplotlib.rc_context(
+        {
+            "figure.dpi": dpi,
+            "savefig.dpi": dpi,
+            "font.family": "DejaVu Sans",
+            "axes.grid": True,
+            "grid.alpha": 0.25,
+        }
+    ):
+        fig, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
+        fig.suptitle(
+            title or f"{strategy_name} — Days before previous loss",
+            fontsize=14,
+            fontweight="bold",
+        )
+        if gaps and histogram.bins:
+            edges = [histogram.bins[0].left, *[bin.right for bin in histogram.bins]]
+            axis.hist(
+                gaps,
+                bins=edges,
+                color="#c62828",
+                alpha=0.82,
+                edgecolor="#7f1d1d",
+                linewidth=0.6,
+            )
+            axis.set_xlim(left=0.0)
+        else:
+            axis.text(
+                0.5,
+                0.5,
+                "Fewer than two losses — no inter-loss gaps",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                fontsize=11,
+                color="#6b7280",
+            )
+        axis.set_xlabel("Days since previous loss (close → close)")
+        axis.set_ylabel("Frequency")
+        summary = clustering.summary
+        median = summary.median_gap_days
+        median_label = "N/A" if median is None else f"{median:.2f} d"
+        axis.set_title(
+            f"Gap samples {histogram.sample_count} · median {median_label} · "
+            f"max consecutive {summary.max_consecutive_losses}",
+            loc="left",
+            fontsize=10,
+        )
+        output = io.BytesIO()
+        save_kwargs = {"format": image_format.lower(), "dpi": dpi}
+        if image_format.lower() == "png":
+            save_kwargs["metadata"] = {"Software": "trade-analyser-tools"}
+        fig.savefig(output, **save_kwargs)
+        plt.close(fig)
+    return output.getvalue()
+
+
+def save_loss_gap_histogram(
+    result: Any,
+    destination: str | Path,
+    *,
+    title: str | None = None,
+    image_format: str = "png",
+    dpi: int = 140,
+) -> Path:
+    """Render and save an inter-loss gap histogram, returning its path."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        render_loss_gap_histogram(
+            result,
+            title=title,
+            image_format=image_format,
+            dpi=dpi,
+        )
+    )
+    return path
+
+
+# Backward-compatible aliases for the removed scatter chart API.
+render_loss_gap_scatter = render_loss_gap_histogram
+save_loss_gap_scatter = save_loss_gap_histogram

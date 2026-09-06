@@ -29,6 +29,8 @@ from .load import InputSource, load_report
 from .metrics import Metrics, compute_metrics
 from .periods import PeriodWindow, SamplePeriodConfig
 from .trade_profit import TradeProfitAnalysis, build_trade_profit_analysis
+from .return_distributions import ReturnDistributions, analyze_return_distributions
+from .loss_clustering import LossClusteringResult, build_loss_clustering
 from .models import Report, Trade
 from .what_if import WhatIfConfig, WhatIfResult
 from .pipeline import PreparedView, TransformationPlan, prepare_analysis
@@ -250,6 +252,10 @@ class PeriodAnalysisResult:
         """Daily realized net-profit points for this period."""
         return self.analysis.daily_profit
 
+    @property
+    def return_distributions(self) -> ReturnDistributions:
+        return self.analysis.return_distributions
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -288,6 +294,7 @@ class AnalysisResult:
     monthly: tuple[MonthlyPerformance, ...]
     monthly_drawdown: tuple[MonthlyDrawdown, ...]
     drawdown_analysis: DrawdownAnalysis
+    return_distributions: ReturnDistributions
     monthly_performance: MonthlyPerformanceTable
     trade_profit: TradeProfitAnalysis
     by_symbol: dict[str, dict[str, Any]]
@@ -302,6 +309,7 @@ class AnalysisResult:
     what_if: WhatIfResult | None = None
     sample_period_config: SamplePeriodConfig | None = None
     periods: dict[str, PeriodAnalysisResult] = field(default_factory=dict)
+    loss_clustering: LossClusteringResult | None = None
 
     def _rebuild(self, plan: TransformationPlan) -> "AnalysisResult":
         original = self.source_report or self.report
@@ -439,9 +447,17 @@ class AnalysisResult:
             if isinstance(drawdown_data, dict)
             else analyze_drawdowns(equity)
         )
+        return_distribution_data = payload.get("return_distributions")
+        restored_return_distributions = (
+            ReturnDistributions.from_dict(return_distribution_data)
+            if isinstance(return_distribution_data, dict)
+            else analyze_return_distributions(equity)
+        )
         restored_warnings = [Diagnostic(**item) for item in payload.get("warnings", [])]
         if not isinstance(drawdown_data, dict):
             restored_warnings.extend(restored_drawdown.warnings)
+        if not isinstance(return_distribution_data, dict):
+            restored_warnings.extend(restored_return_distributions.warnings)
 
         monthly = tuple(MonthlyPerformance(**item) for item in payload.get("monthly", []))
         table_data = payload.get("monthly_performance")
@@ -505,6 +521,7 @@ class AnalysisResult:
             monthly=monthly,
             monthly_drawdown=tuple(MonthlyDrawdown(**item) for item in payload.get("monthly_drawdown", [])),
             drawdown_analysis=restored_drawdown,
+            return_distributions=restored_return_distributions,
             monthly_performance=monthly_performance,
             trade_profit=trade_profit,
             by_symbol=payload.get("by_symbol", {}),
@@ -522,6 +539,11 @@ class AnalysisResult:
                 name: PeriodAnalysisResult.from_dict(item)
                 for name, item in payload.get("periods", {}).items()
             },
+            loss_clustering=(
+                LossClusteringResult.from_dict(payload["loss_clustering"])
+                if payload.get("loss_clustering") is not None
+                else build_loss_clustering(report)
+            ),
         )
 
     def to_csv(self, section: str = "monthly") -> str:
@@ -785,6 +807,20 @@ def _by_symbol(report: Report) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _extend_unique_diagnostics(
+    target: list[Diagnostic],
+    additions: tuple[Diagnostic, ...] | list[Diagnostic],
+) -> None:
+    """Append diagnostics once per code while retaining the first context."""
+
+    seen = {item.code for item in target}
+    for item in additions:
+        if item.code in seen:
+            continue
+        target.append(item)
+        seen.add(item.code)
+
+
 def _validate(report: Report, metrics: Metrics) -> ValidationResult:
     checks: dict[str, Any] = {}
     discrepancies: list[dict[str, Any]] = []
@@ -851,6 +887,8 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
     )
     drawdown_analysis = analyze_drawdowns(primary)
     diagnostics.extend(drawdown_analysis.warnings)
+    return_distributions = analyze_return_distributions(primary)
+    _extend_unique_diagnostics(diagnostics, return_distributions.warnings)
     metrics = compute_metrics(report, primary_curve=primary, config=config, diagnostics=diagnostics)
     monthly, monthly_drawdown = _curve_monthly(primary, report) if config.include_monthly else ((), ())
     monthly_performance = _monthly_performance_table(monthly, primary.source, primary.basis)
@@ -862,6 +900,8 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         config=config.trade_profit,
     )
     diagnostics.extend(trade_profit.warnings)
+    loss_clustering = build_loss_clustering(report)
+    diagnostics.extend(loss_clustering.warnings)
     validation = _validate(report, metrics)
     if validation.status != "match":
         diagnostics.append(Diagnostic(
@@ -881,6 +921,7 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         monthly=monthly,
         monthly_drawdown=monthly_drawdown,
         drawdown_analysis=drawdown_analysis,
+        return_distributions=return_distributions,
         monthly_performance=monthly_performance,
         trade_profit=trade_profit,
         by_symbol=_by_symbol(report) if config.include_breakdowns else {},
@@ -889,6 +930,7 @@ def _analyze_core(report: Report, config: AnalysisConfig) -> AnalysisResult:
         provenance=_provenance(report, config),
         sample_period_config=None,
         periods={},
+        loss_clustering=loss_clustering,
     )
 
 
@@ -972,6 +1014,10 @@ def _result_from_prepared_view(
                     result.monthly_performance,
                     source=filtered_source,
                     basis="balance",
+                ),
+                return_distributions=result.return_distributions.with_curve_metadata(
+                    filtered_source,
+                    "balance",
                 ),
             )
 

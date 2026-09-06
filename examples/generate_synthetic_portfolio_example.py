@@ -131,6 +131,7 @@ def generate(output_dir: Path) -> dict[str, Path]:
         raise RuntimeError("portfolio members do not match the expected synthetic pair")
     if portfolio.drawdown_analysis.completed_episode_count < 1:
         raise RuntimeError("expected the allocated portfolio to contain drawdown episodes")
+    # The committed example intentionally opts into Monte Carlo.
     monte_carlo = run_monte_carlo(
         portfolio.portfolio_report,
         DEFAULT_REPORT_MONTE_CARLO_CONFIG,

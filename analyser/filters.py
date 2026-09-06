@@ -169,6 +169,23 @@ class ShortOnly(TradeFilter):
 
 
 @dataclass(frozen=True)
+class LosingOnly(TradeFilter):
+    """Select completed positions with strictly negative net profit."""
+
+    @property
+    def code(self) -> str:
+        return "losing_only"
+
+    def evaluate(self, trade: Trade, context: FilterContext) -> FilterEvaluation:
+        if trade.profit < 0.0:
+            return FilterEvaluation(True)
+        return FilterEvaluation(False, (self.code,))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": self.code}
+
+
+@dataclass(frozen=True)
 class OpenDateRangeFilter(TradeFilter):
     """Select trades whose open time is in ``[start, end)``."""
 
@@ -438,6 +455,8 @@ def filter_from_dict(payload: dict[str, Any]) -> TradeFilter:
         return LongOnly()
     if kind == "short_only":
         return ShortOnly()
+    if kind == "losing_only":
+        return LosingOnly()
     if kind == "open_date_range":
         parser = datetime.fromisoformat if payload.get("value_type") == "datetime" else date.fromisoformat
         return OpenDateRangeFilter(parser(payload["start"]), parser(payload["end"]))

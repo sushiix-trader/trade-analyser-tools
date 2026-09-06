@@ -53,6 +53,9 @@ Single-report outputs:
 - [Metrics CSV](metrics.csv)
 - [Monthly returns CSV](monthly.csv)
 - [Monthly drawdown CSV](monthly-drawdown.csv)
+- Return distributions are embedded in the typed JSON result and interactive
+  report under the **Return distributions** tab (monthly/weekly/daily); there is
+  no separate chart download for this tab.
 - [Drawdown depth × duration summary CSV](drawdown-summary.csv)
 - [Drawdown depth × duration episodes CSV](drawdown-episodes.csv)
 - [Year/month/YTD performance CSV](monthly-performance.csv)
@@ -79,14 +82,19 @@ Portfolio outputs:
 The interactive portfolio page combines the three sanitized example reports
 with equal raw weights (`1.0` each), normalized to one-third allocations and a
 `$300,000` portfolio initial capital. It includes the combined metrics,
-filterable member curves, monthly return/drawdown heat maps, drawdown depth ×
-duration episodes, trade analysis, and selectable daily/weekly profit-correlation matrix. Its
-section controls are true in-page tabs
-within one HTML file, with only the selected panel visible. The **Edit name**
+filterable member curves, monthly return/drawdown heat maps, ranked monthly/
+weekly/daily return distributions with 12-bin histograms, drawdown depth × duration
+episodes, trade analysis, the **Losses** tab (loss-only equity vs close time with
+a constant loss-rate reference and an equal-width day gap histogram), and
+selectable daily/weekly profit-correlation matrix.
+
+Its section controls are true in-page tabs within one HTML file, with only the
+selected panel visible. The **Edit name**
 control changes only presentation metadata and persists the chosen name in the
 shareable URL fragment.
 
-Monte Carlo outputs:
+Monte Carlo outputs (the fixture generators explicitly opt into this
+potentially expensive simulation):
 
 - [Monte Carlo p5/p50/p95 summary](monte-carlo-summary.md)
 - [Monte Carlo simulated paths](monte-carlo-paths.png)

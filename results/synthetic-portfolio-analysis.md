@@ -50,11 +50,11 @@
 | average_consecutive_losses | 1.945945945945946 |
 | max_drawdown_money | 778.4400000000023 |
 | max_drawdown_pct | 0.6777146588312134 |
-| average_drawdown_money | 183.79926829268294 |
+| average_drawdown_money | 184.15154545454538 |
 | longest_drawdown_points | 7 |
 | max_runup_money | 15922.5 |
 | max_runup_pct | 15.922500000000001 |
-| ulcer_index_pct | 0.15088906287373963 |
+| ulcer_index_pct | 0.15126666789680943 |
 | return_drawdown_ratio | 23.494401061738788 |
 | annual_return_to_max_drawdown_ratio | 10.493598754422017 |
 | max_stagnation_days | 24.0 |

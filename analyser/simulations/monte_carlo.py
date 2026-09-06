@@ -49,7 +49,7 @@ class MonteCarloConfig:
     Set ``retain_paths=True`` when a caller needs simulated equity paths for
     visualisation.  ``path_count`` keeps a deterministic, evenly-spaced subset
     of iterations in memory; when omitted, every iteration is retained. The
-    standard complete interactive-report workflow uses
+    opt-in complete interactive-report workflow uses
     ``DEFAULT_REPORT_MONTE_CARLO_CONFIG``.
     """
 

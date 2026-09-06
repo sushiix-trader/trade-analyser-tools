@@ -38,7 +38,7 @@ class ReportAnalyzerApp:
         self.source_var = self._tk.StringVar()
         self.output_var = self._tk.StringVar()
         default_monte_carlo = DEFAULT_REPORT_MONTE_CARLO_CONFIG
-        self.monte_carlo_var = self._tk.BooleanVar(value=True)
+        self.monte_carlo_var = self._tk.BooleanVar(value=False)
         self.method_var = self._tk.StringVar(value=default_monte_carlo.method)
         self.iterations_var = self._tk.StringVar(value=str(default_monte_carlo.iterations))
         self.seed_var = self._tk.StringVar(value=str(default_monte_carlo.seed))
@@ -87,7 +87,7 @@ class ReportAnalyzerApp:
         ).grid(row=0, column=0, sticky="w")
         self._ttk.Label(
             root_frame,
-            text="Generate the complete canonical interactive report, including drawdown and deterministic Monte Carlo robustness.",
+            text="Generate the complete canonical interactive report, including drawdown; Monte Carlo is optional.",
             style="Subtitle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 18))
 
@@ -111,7 +111,7 @@ class ReportAnalyzerApp:
         mc_panel.columnconfigure(4, weight=1)
         mc_check = self._ttk.Checkbutton(
             mc_panel,
-            text="Run Monte Carlo (included by default)",
+            text="Run Monte Carlo (optional; adds generation time)",
             variable=self.monte_carlo_var,
             command=self._update_monte_carlo_state,
         )

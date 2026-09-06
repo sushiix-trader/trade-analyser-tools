@@ -30,17 +30,23 @@ Resume only after the user supplies the clarification.
    source; do not write a custom HTML, chart, or metric script.
 3. A complete report includes the eager metrics, monthly tables, equity and
    high-water-mark drawdown, drawdown depth × duration episodes, trade analysis,
-   portfolio daily/weekly correlation where applicable, and a deterministic
-   Monte Carlo robustness tab. Drawdown is already calculated by the eager
-   analyser; do not omit it because the user did not name it explicitly.
-4. For the standard report, run Monte Carlo after all requested member filters,
-   sample-period selection, and what-if sizing have been applied. Use
-   `DEFAULT_REPORT_MONTE_CARLO_CONFIG` (10,000 permutation iterations, seed
-   42, and 500 retained paths) and pass the resulting `MonteCarloResult` to
-   `save_interactive_report(..., monte_carlo=simulation)`. For a portfolio,
-   simulate `portfolio.portfolio_report`, the allocated aggregate completed
-   position stream; do not pool member drawdown episodes or manually net
-   trades. Honor an explicit request to skip Monte Carlo.
+   losing-trade equity/clustering (**Losses** tab), and portfolio daily/weekly
+   correlation where applicable. Drawdown is already
+   calculated by the eager analyser; do not omit it because the user did not
+   name it explicitly. Monte Carlo is an optional robustness add-on because it
+   can add substantial generation time. If a report request does not explicitly
+   state whether Monte Carlo is wanted, ask before starting analysis: **“Should I
+   include Monte Carlo robustness? It is optional and can add several minutes to
+   report generation.”** Wait for the answer before generating the report.
+4. If the user opts in (or explicitly requests Monte Carlo), run it after all
+   requested member filters, sample-period selection, and what-if sizing have
+   been applied. Use `DEFAULT_REPORT_MONTE_CARLO_CONFIG` (10,000 permutation
+   iterations, seed 42, and 500 retained paths) and pass the resulting
+   `MonteCarloResult` to `save_interactive_report(..., monte_carlo=simulation)`.
+   For a portfolio, simulate `portfolio.portfolio_report`, the allocated
+   aggregate completed-position stream; do not pool member drawdown episodes or
+   manually net trades. If the user opts out, pass `monte_carlo=None`; the HTML
+   keeps the Monte Carlo tab and displays guidance to regenerate it later.
 5. Accept a path, bytes, or file-like object. Use the public `analyze_file()`
    or `load_report()`/`analyze()` seam as appropriate.
 6. Apply transformations through typed configuration and result methods. The
@@ -263,6 +269,36 @@ with diagnostics. Use `save_correlation_heatmap(daily, destination)` or pass
 `weekly` for the deterministic fixed `[-1, 1]` heat-map artifact with
 two-decimal labels and grey undefined cells.
 
+### Losing-trade equity and clustering
+
+For “how clustered are the losses”, “show loss-only equity”, “days between
+losses”, or “losing-trade streak”, use the eager clustering payload and chart
+APIs (also rendered on the interactive **Losses** tab):
+
+```python
+from analyser import (
+    LosingOnly,
+    save_loss_gap_histogram,
+    save_loss_only_equity_chart,
+)
+
+clustering = result.loss_clustering
+print(clustering.summary.loss_count)
+print(clustering.summary.median_gap_days)
+print(clustering.summary.max_consecutive_losses)
+
+save_loss_only_equity_chart(result, "loss-only-equity.png")
+save_loss_gap_histogram(result, "loss-gap-histogram.png")
+
+# Full re-analysis on losers only (broader than the dedicated Losses payload).
+losers = result.apply_filters(LosingOnly())
+```
+
+The loss-only equity chart uses **close time** on the X axis and a dashed
+start→end line for constant loss rate over calendar time (endpoints always
+meet). The companion chart is an equal-width **histogram** of close→close gap
+days. Break-even trades (`profit == 0`) are excluded from losses.
+
 ### Trade-profit bar charts
 
 For “show trade profit by opening hour”, “show closing-hour profit”, or
@@ -434,8 +470,9 @@ the preferred user-facing output. It is also the API for “turn one MT5 report
 into one webpage”. It accepts an already eager
 `AnalysisResult`/`PortfolioAnalysisResult`, or one raw HTML/XML path, bytes
 object, or file-like object. A raw report is still one strategy; a portfolio is
-passed as an already combined typed result. The standard workflow supplies the
-deterministic Monte Carlo result rather than leaving the tab unpopulated.
+passed as an already combined typed result. The standard workflow supplies a
+deterministic Monte Carlo result only when the user has opted in; otherwise the
+tab remains available with a clear regeneration message.
 
 ```python
 from analyser import (
@@ -522,9 +559,12 @@ report.
 
 ### Monte Carlo
 
-Monte Carlo is part of the standard complete report unless the user explicitly
-asks to skip it. Use the shared report configuration so the default is
-reproducible and the interactive page has a bounded path visual:
+Monte Carlo is an opt-in add-on to the complete report. If a general report
+request does not state whether it is wanted, ask before starting the report and
+wait for the answer. If the user opts in, use the shared report configuration
+so the result is reproducible and the interactive page has a bounded path visual;
+if the user opts out, omit the simulation and pass `monte_carlo=None` to the
+renderer:
 
 ```python
 from analyser import (
@@ -580,19 +620,27 @@ negative extends losses, and zero resets both.
 When the user asks to analyse a strategy or portfolio without requesting a
 narrower output, follow this response path:
 
-1. Resolve any required clarification before touching the report.
+1. Resolve any required clarification before touching the report. In particular,
+   if the user has not said whether Monte Carlo is required, ask: **“Should I
+   include Monte Carlo robustness? It is optional and can add several minutes to
+   report generation.”** Wait for the answer; an explicit request to run or skip
+   it is already an opt-in/opt-out decision.
 2. Eagerly analyse through the canonical typed API (`analyze_file()` for one
    report or `analyze_portfolio()` for multiple reports).
 3. Read the eager drawdown result (`result.drawdown_analysis` or
-   `portfolio.drawdown_analysis`) and run the deterministic complete-report
-   Monte Carlo configuration. For one report simulate `result.report`; for a
-   portfolio simulate `portfolio.portfolio_report`.
+   `portfolio.drawdown_analysis`). If the user opted into Monte Carlo, run the
+   deterministic complete-report configuration: simulate `result.report` for
+   one report or `portfolio.portfolio_report` for a portfolio. If the user
+   opted out, do not run the simulation.
 4. Generate one self-contained interactive HTML report with
-   `save_interactive_report(..., monte_carlo=simulation)` and return its path
-   or accessible link. The page must include the Drawdown and Monte Carlo tabs
-   as well as the other standard analysis views.
-5. Give a concise summary of the main result, historical drawdown, Monte Carlo
-   percentiles/configuration, and warnings. Suggest relevant follow-up
+   `save_interactive_report(..., monte_carlo=simulation)` when opted in, or
+   `save_interactive_report(..., monte_carlo=None)` when opted out, and return
+   its path or accessible link. The page must include the Drawdown tab and the
+   other standard analysis views; the Monte Carlo tab remains available and
+   shows guidance when no simulation was supplied.
+5. Give a concise summary of the main result, historical drawdown, and warnings.
+   When Monte Carlo was run, also summarize its percentiles/configuration.
+   Suggest relevant follow-up
    capabilities instead of writing a custom script. Typical suggestions
    include long/short or time/session filters, in-sample versus out-of-sample
    analysis, what-if sizing, portfolio member analysis and daily/weekly profit
