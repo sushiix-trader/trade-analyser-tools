@@ -62,6 +62,12 @@ Every analysis is eager and deterministic. Values can be retrieved later from
 - External cash flows are not modeled. The source balance/equity is preserved,
   while the reconstructed curve is calculated from the canonical completed
   positions.
+- Drawdown and the primary report curve are **balance-based** for typical MT5
+  Strategy Tester HTML exports: deal-table balance points and/or the
+  reconstructed closed-position balance path. Floating **equity** drawdown is
+  used only when the report supplies a complete `source_equity` series; most
+  HTML dumps do not. MT5 header equity-DD summary fields are not a substitute
+  equity curve.
 - M1/OHLC data is not currently an input source. R-expectancy and bars-per-trade
   metrics remain undefined unless the report supplies explicit R/bar values.
 
@@ -371,9 +377,12 @@ Portfolio curve aggregation replays **every** member observation in
 chronological order (stable by member index, then point index), including
 multiple balance updates that share the same timestamp. Collapsing to unique
 timestamps and keeping only the last value per second would erase intermediate
-peak-to-trough paths and understate portfolio drawdown. Member dollar paths are
-still capital-weighted; percentage drawdowns on each allocated member curve
-match that member’s unscaled percentage path.
+peak-to-trough paths and understate portfolio drawdown. Keeping the full event
+path makes **portfolio-level drawdown materially more accurate** relative to
+that older collapse behaviour. Member dollar paths are still capital-weighted;
+percentage drawdowns on each allocated member curve match that member’s
+unscaled percentage path. Portfolio DD remains on the same balance/equity
+basis as the member curves (balance for typical HTML reports).
 
 ## Build a portfolio
 
